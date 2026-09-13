@@ -20,8 +20,11 @@
     <div id="root"></div>
 
     <script type="text/babel">
+        // 解構 React hooks，確保全域環境正常運作
+        const { useState, useEffect, useMemo } = React;
+
         // ⚠️ 請填入您 GAS 部署後的網路應用程式 URL
-        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxj5jZBp7HIPxVxadK9ri06pCeYQpOncxo_QR0QeHmgEwoWt_4zAKG-DuwCU-9ly7FTPw/exec";
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxj5jZBp7HIPxVxadK9ri06pCeYQpOncxo_QR0QeHmgEwoWt_4zAKG-DuWCU-9ly7FTPw/exec";
 
         const DEFAULT_PRODUCTS = [
             {
