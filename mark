@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧食品營養標籤產生器 V3.1 (GitHub版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // ⚠️ 請填入您 GAS 部署後的網路應用程式 URL
+        const GAS_API_URL = "https://script.google.com/macros/s/AKfycbxj5jZBp7HIPxVxadK9ri06pCeYQpOncxo_QR0QeHmgEwoWt_4zAKG-DuwCU-9ly7FTPw/exec";
+
+        const DEFAULT_PRODUCTS = [
+            {
+                id: "p_default",
+                name: "香菜花生達克瓦茲",
+                servingWeight: 40,             
+                toleranceWeight: 5,            
+                lossRate: 12,
+                storageMethod: "冷凍保存",
+                storageDays: 14,
+                origin: "台灣",
+                manufacturer: "露癡工作室",
+                phone: "03-3520080", 
+                address: "桃園市蘆竹區錦秀街13巷13號", 
+                insurance: "本產品已投保南山產物產品責任險",
+                fontSize: 12,          
+                lineSpacing: 1.8,      
+                exportScale: 3,
+                showEatingMethod: true,        
+                eatingMethod: "解凍後即可食用", 
+                ingredients: [
+                    { name: "發酵奶油", weight: 100 },
+                    { name: "雞蛋蛋白", weight: 90 },
+                    { name: "扁桃仁粉", weight: 70 },
+                    { name: "蔗糖", weight: 50 },
+                    { name: "小麥低筋麵粉", weight: 15 }
+                ]
+            }
+        ];
+
+        function App() {
+            const [products, setProducts] = useState(DEFAULT_PRODUCTS);
+            const [nutritionDb, setNutritionDb] = useState([]); 
+            const [selectedProductId, setSelectedProductId] = useState('p_default');
+            const [dbSearchQuery, setDbSearchQuery] = useState('');
+            const [syncStatus, setSyncStatus] = useState('初始化中...');
+            const [applyFdaRules, setApplyFdaRules] = useState(true);
+
+            // 藍芽狀態控制
+            const [bleDevice, setBleDevice] = useState(null);
+            const [bleCharacteristic, setBleCharacteristic] = useState(null);
+            const [bleStatus, setBleStatus] = useState('未連線');
+
+            useEffect(() => {
+                const local = localStorage.getItem('local_products_v31');
+                if (local) {
+                    try { setProducts(JSON.parse(local)); } catch(e) { console.log(e); }
+                }
+
+                if (GAS_API_URL && !GAS_API_URL.includes("填入您的")) {
+                    setSyncStatus('🔍 正在從試算表讀取資料庫...');
+                    
+                    // 讀取產品配方
+                    fetch(`${GAS_API_URL}?action=loadProducts`)
+                        .then(res => res.json())
+                        .then(cloudData => {
+                            if (cloudData && cloudData.length > 0) {
+                                const updatedCloudData = cloudData.map(p => ({
+                                    ...p,
+                                    fontSize: p.fontSize || 12,
+                                    lineSpacing: p.lineSpacing || 1.8,
+                                    exportScale: p.exportScale || 3
+                                }));
+                                setProducts(updatedCloudData);
+                                setSelectedProductId(updatedCloudData[0].id);
+                            }
+                        })
+                        .catch(err => console.error(err));
+
+                    // 讀取原料資料庫
+                    fetch(`${GAS_API_URL}?action=getNutrition`)
+                        .then(res => res.json())
+                        .then(result => {
+                            if (result && Array.isArray(result)) {
+                                const parsedDb = result.map((row, idx) => ({
+                                    id: `db_${idx}`,
+                                    category: row[0] || '',
+                                    name: row[1].toString().trim(), 
+                                    commonName: row[2] ? row[2].toString().trim() : '', 
+                                    kcal: Number(row[3]) || 0, protein: Number(row[4]) || 0, fat: Number(row[5]) || 0,
+                                    satFat: Number(row[6]) || 0, transFat: Number(row[7]) || 0, carb: Number(row[8]) || 0,
+                                    sugar: Number(row[9]) || 0, sodium: Number(row[10]) || 0      
+                                }));
+                                setNutritionDb(parsedDb);
+                                setSyncStatus(`✅ 連線成功！已由雲端載入 ${parsedDb.length} 筆樣品原料`);
+                            }
+                        })
+                        .catch(err => setSyncStatus('⚠️ 雲端資料庫讀取失敗'));
+                } else {
+                    setSyncStatus('⚠️ 運作於單機模式（尚未設定 API 網址）');
+                }
+            }, []);
+
+            const handleSyncToCloud = () => {
+                if (!GAS_API_URL || GAS_API_URL.includes("填入您的")) {
+                    alert("請先在 HTML 內設定 GAS_API_URL！");
+                    return;
+                }
+                setSyncStatus('🚀 正在傳輸資料至 Google 試算表...');
+                localStorage.setItem('local_products_v31', JSON.stringify(products));
+
+                fetch(GAS_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify({ action: 'saveProducts', products: products })
+                })
+                .then(res => res.json())
+                .then(res => {
+                    if (res && res.success) {
+                        setSyncStatus(`✅ 成功上傳！共同步 ${res.count} 筆配方至雲端試算表`);
+                    } else {
+                        setSyncStatus(`❌ 上傳失敗: ${res.error}`);
+                    }
+                })
+                .catch(err => setSyncStatus(`❌ 上傳連線失敗`));
+            };
+
+            const currentProduct = useMemo(() => {
+                const prod = products.find(p => p.id === selectedProductId) || products[0] || DEFAULT_PRODUCTS[0];
+                return {
+                    ...prod,
+                    fontSize: prod.fontSize || 12,
+                    lineSpacing: prod.lineSpacing || 1.8,
+                    exportScale: prod.exportScale || 3
+                };
+            }, [products, selectedProductId]);
+
+            const allergenWarning = useMemo(() => {
+                const keywords = { "乳": "乳製品", "奶": "乳製品", "蛋": "蛋類", "小麥": "麩質穀物", "麵粉": "麩質穀物", "花生": "花生", "堅果": "堅果", "杏仁": "堅果", "芝麻": "芝麻", "大豆": "大豆" };
+                const detected = []; 
+                if (currentProduct && currentProduct.ingredients) {
+                    currentProduct.ingredients.forEach(ing => {
+                        Object.keys(keywords).forEach(key => {
+                            if (ing.name.includes(key) && !detected.includes(keywords[key])) detected.push(keywords[key]);
+                        });
+                    });
+                }
+                return detected.length > 0 ? `本產品含有${detected.join('、')}及其製品，不適合對其過敏體質者食用。` : "";
+            }, [currentProduct]);
+
+            const sortedIngredientsText = useMemo(() => {
+                if (!currentProduct || !currentProduct.ingredients) return "無";
+                const sorted = [...currentProduct.ingredients].sort((a, b) => (Number(b.weight) || 0) - (Number(a.weight) || 0));
+                return sorted.map(i => i.name).join('、');
+            }, [currentProduct]);
+
+            const calculatedLabel = useMemo(() => {
+                let totalRawWeight = 0, kcal = 0, protein = 0, fat = 0, satFat = 0, transFat = 0, carb = 0, sugar = 0, sodium = 0;
+                
+                if (currentProduct && currentProduct.ingredients) {
+                    currentProduct.ingredients.forEach(ing => {
+                        const dbItem = nutritionDb.find(d => d.name === ing.name);
+                        const weight = Number(ing.weight) || 0;
+                        totalRawWeight += weight;
+                        if (dbItem) {
+                            const ratio = weight / 100;
+                            kcal += (dbItem.kcal || 0) * ratio; protein += (dbItem.protein || 0) * ratio; fat += (dbItem.fat || 0) * ratio;
+                            satFat += (dbItem.satFat || 0) * ratio; transFat += (dbItem.transFat || 0) * ratio; carb += (dbItem.carb || 0) * ratio;
+                            sugar += (dbItem.sugar || 0) * ratio; sodium += (dbItem.sodium || 0) * ratio;
+                        }
+                    });
+                }
+
+                const lossRate = Number(currentProduct.lossRate) || 0;
+                const finalProductWeight = totalRawWeight * (1 - lossRate / 100);
+                const factor100g = finalProductWeight > 0 ? (100 / finalProductWeight) : 0;
+                const numWeight = Number(currentProduct.servingWeight) || 40;
+                const factorServing = finalProductWeight > 0 ? (numWeight / finalProductWeight) : 0;
+
+                const format = (val, isInt, type) => {
+                    let formatted = Number(val);
+                    if (applyFdaRules) {
+                        if (type === 'sodium' && formatted < 5) return "0";
+                        if (type === 'transFat' && formatted < 0.3) return "0";
+                        if (['protein', 'fat', 'satFat', 'carb', 'sugar'].includes(type) && formatted < 0.5) return "0";
+                    }
+                    return isInt ? Math.round(formatted).toString() : (Math.round(formatted * 10) / 10).toFixed(1);
+                };
+
+                return {
+                    totalRawWeight: (Math.round(totalRawWeight * 10) / 10).toFixed(1),
+                    serving: {
+                        kcal: format(kcal * factorServing, true, 'kcal'), protein: format(protein * factorServing, false, 'protein'),
+                        fat: format(fat * factorServing, false, 'fat'), satFat: format(satFat * factorServing, false, 'satFat'),
+                        transFat: format(transFat * factorServing, false, 'transFat'), carb: format(carb * factorServing, false, 'carb'),
+                        sugar: format(sugar * factorServing, false, 'sugar'), sodium: format(sodium * factorServing, true, 'sodium')
+                    },
+                    p100g: {
+                        kcal: format(kcal * factor100g, true, 'kcal'), protein: format(protein * factor100g, false, 'protein'),
+                        fat: format(fat * factor100g, false, 'fat'), satFat: format(satFat * factor100g, false, 'satFat'),
+                        transFat: format(transFat * factor100g, false, 'transFat'), carb: format(carb * factor100g, false, 'carb'),
+                        sugar: format(sugar * factor100g, false, 'sugar'), sodium: format(sodium * factor100g, true, 'sodium')
+                    }
+                };
+            }, [currentProduct, nutritionDb, applyFdaRules]);
+
+            const handleUpdateField = (field, value) => {
+                setProducts(prev => prev.map(p => p.id === selectedProductId ? { ...p, [field]: value } : p));
+            };
+
+            const downloadImage = () => {
+                const element = document.getElementById('nutrition-label-card');
+                html2canvas(element, { scale: currentProduct.exportScale || 3, backgroundColor: "#ffffff" }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `${currentProduct.name}_規格化標籤.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                });
+            };
+
+            // 藍芽連線（GitHub Pages 獨立網址下可 100% 成功執行）
+            const handleConnectBluetooth = async () => {
+                if (!navigator.bluetooth) {
+                    alert("您的瀏覽器不支援 Web Bluetooth，請開啟 Chrome 或 Edge 瀏覽器！");
+                    return;
+                }
+
+                try {
+                    setBleStatus("搜尋中...");
+                    const device = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: [
+                            '000018f0-0000-1000-8000-00805f9b34fb',
+                            '00001101-0000-1000-8000-00805f9b34fb',
+                            '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+                        ]
+                    });
+
+                    setBleStatus(`連接至 ${device.name}...`);
+                    const server = await device.gatt.connect();
+                    const services = await server.getPrimaryServices();
+                    let targetChar = null;
+
+                    for (const service of services) {
+                        const characteristics = await service.getCharacteristics();
+                        targetChar = characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse);
+                        if (targetChar) break;
+                    }
+
+                    if (targetChar) {
+                        setBleDevice(device);
+                        setBleCharacteristic(targetChar);
+                        setBleStatus(`已連線：${device.name || "藍芽出單機"}`);
+                    } else {
+                        throw new Error("找不到可寫入的藍芽通道");
+                    }
+                } catch (error) {
+                    console.error(error);
+                    setBleStatus(`連線失敗：${error.message}`);
+                }
+            };
+
+            const handlePrintBluetooth = async () => {
+                if (!bleCharacteristic) {
+                    alert("請先連線藍芽印表機！");
+                    return;
+                }
+
+                try {
+                    const ESC = '\x1B';
+                    const GS = '\x1D';
+
+                    let cmd = "";
+                    cmd += ESC + '@';
+                    cmd += ESC + 'a' + '\x01';
+                    cmd += ESC + '!' + '\x30';
+                    cmd += currentProduct.name + "\n\n";
+
+                    cmd += ESC + '!' + '\x00';
+                    cmd += ESC + 'a' + '\x00';
+                    cmd += "--------------------------------\n";
+                    cmd += `內容物：${sortedIngredientsText}\n`;
+                    cmd += `淨重：${currentProduct.servingWeight}g ± ${currentProduct.toleranceWeight}g\n`;
+                    cmd += `保存方式：${currentProduct.storageMethod}\n`;
+                    cmd += `保存期限：${currentProduct.storageDays}天\n`;
+                    if (currentProduct.showEatingMethod) {
+                        cmd += `食用方式：${currentProduct.eatingMethod || "無"}\n`;
+                    }
+                    cmd += `原產地：${currentProduct.origin}\n`;
+                    cmd += `負責廠商：${currentProduct.manufacturer}\n`;
+                    cmd += `電話：${currentProduct.phone}\n`;
+                    if (allergenWarning) {
+                        cmd += `過敏原提示：${allergenWarning}\n`;
+                    }
+                    cmd += "--------------------------------\n";
+                    cmd += "【 營養標示 】 (每份)\n";
+                    cmd += `熱量：${calculatedLabel.serving.kcal} 大卡\n`;
+                    cmd += `蛋白質：${calculatedLabel.serving.protein} g | 脂肪：${calculatedLabel.serving.fat} g\n`;
+                    cmd += `  飽和脂肪：${calculatedLabel.serving.satFat} g | 反式脂肪：${calculatedLabel.serving.transFat} g\n`;
+                    cmd += `碳水化合物：${calculatedLabel.serving.carb} g | 糖：${calculatedLabel.serving.sugar} g\n`;
+                    cmd += `鈉：${calculatedLabel.serving.sodium} mg\n`;
+                    cmd += "--------------------------------\n\n\n";
+                    cmd += GS + 'V' + '\x41' + '\x03';
+
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode(cmd);
+
+                    const chunkSize = 512;
+                    for (let i = 0; i < data.length; i += chunkSize) {
+                        const chunk = data.slice(i, i + chunkSize);
+                        await bleCharacteristic.writeValue(chunk);
+                    }
+
+                    alert("印表機列印指令發送成功！");
+                } catch (error) {
+                    alert("列印失敗：" + error.message);
+                }
+            };
+
+            const handleCreateNewManualProduct = () => {
+                const newId = 'p_man_' + Date.now();
+                setProducts(prev => [{
+                    id: newId, name: "全新手動輸入配方", servingWeight: 40, toleranceWeight: 5, lossRate: 0, storageMethod: "冷凍保存", storageDays: 14,
+                    origin: "台灣", manufacturer: "露癡工作室", phone: "03-3520080", address: "桃園市蘆竹區錦秀街13巷13號",
+                    insurance: "本產品已投保南山產物產品責任險", fontSize: 12, lineSpacing: 1.8, exportScale: 3, showEatingMethod: false, eatingMethod: "解凍後即可食用", ingredients: []
+                }, ...prev]);
+                setSelectedProductId(newId);
+            };
+
+            const filteredDb = nutritionDb.filter(item => {
+                const query = dbSearchQuery.toLowerCase().trim();
+                if (!query) return false;
+                return item.name.toLowerCase().includes(query) || (item.commonName && item.commonName.toLowerCase().includes(query));
+            });
+
+            return (
+                <div class="min-h-screen flex flex-col">
+                    <header class="bg-gradient-to-r from-teal-800 to-emerald-900 text-white shadow-md py-4 px-6 flex justify-between items-center flex-wrap gap-4">
+                        <div>
+                            <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品包裝標籤產生器 V3.1</h1>
+                            <p class="text-[10px] text-teal-200 font-bold">{syncStatus}</p>
+                        </div>
+                        <button onClick={handleSyncToCloud} class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-4 py-2 rounded-lg shadow-md text-xs transition duration-200">
+                            <i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>儲存並上傳至試算表
+                        </button>
+                    </header>
+
+                    <main class="flex-grow max-w-7xl mx-auto px-4 py-6 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <div class="lg:col-span-6 flex flex-col gap-6">
+                            <div class="bg-white rounded-xl shadow-sm border p-4 flex gap-2">
+                                <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} class="flex-1 p-2 border text-xs rounded font-bold bg-white">
+                                    {products.map(p => <option key={p.id} value={p.id}>📝 {p.name}</option>)}
+                                </select>
+                                <button onClick={handleCreateNewManualProduct} class="bg-teal-600 text-white font-bold px-3 text-xs rounded-lg shadow hover:bg-teal-700">新增</button>
+                            </div>
+
+                            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs flex flex-col gap-3 shadow-sm">
+                                <h3 class="font-black text-amber-900"><i class="fa-solid fa-sliders mr-1.5"></i>📐 標籤外觀排版自訂</h3>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">🔍 全域字體大小 ({currentProduct.fontSize}px)</label>
+                                        <input type="range" min="10" max="18" step="1" value={currentProduct.fontSize} onChange={e => handleUpdateField('fontSize', Number(e.target.value))} class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600" />
+                                    </div>
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">↕️ 字與橫線間距 ({currentProduct.lineSpacing})</label>
+                                        <input type="range" min="1.2" max="2.6" step="0.1" value={currentProduct.lineSpacing} onChange={e => handleUpdateField('lineSpacing', Number(e.target.value))} class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-sm border p-4 text-xs grid grid-cols-2 gap-3">
+                                <div class="col-span-2">
+                                    <label class="font-bold text-slate-600 block mb-1">產品品名</label>
+                                    <input type="text" value={currentProduct.name} onChange={e => handleUpdateField('name', e.target.value)} class="w-full p-2 border rounded font-bold" />
+                                </div>
+                                
+                                <div>
+                                    <label class="font-bold text-slate-600 block mb-1">標準每份淨重 (公克)</label>
+                                    <input type="number" value={currentProduct.servingWeight} onChange={e => handleUpdateField('servingWeight', Number(e.target.value))} class="w-full p-2 border border-slate-300 rounded font-black text-teal-800 text-sm" />
+                                </div>
+                                <div>
+                                    <label class="font-bold text-slate-600 block mb-1">允許誤差值 (公克)</label>
+                                    <div class="relative flex items-center">
+                                        <span class="absolute left-2.5 font-bold text-slate-500 text-sm">±</span>
+                                        <input type="number" value={currentProduct.toleranceWeight} onChange={e => handleUpdateField('toleranceWeight', Number(e.target.value))} class="w-full p-2 pl-6 border border-slate-300 rounded font-bold text-rose-700 text-sm" />
+                                    </div>
+                                </div>
+
+                                <div><label class="font-bold text-slate-600 block mb-1">烘焙水分耗損 (%)</label><input type="number" value={currentProduct.lossRate} onChange={e => handleUpdateField('lossRate', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                <div><label class="font-bold text-slate-600 block mb-1">保存方式</label><input type="text" value={currentProduct.storageMethod} onChange={e => handleUpdateField('storageMethod', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                <div><label class="font-bold text-slate-600 block mb-1">保存期限 (天)</label><input type="number" value={currentProduct.storageDays} onChange={e => handleUpdateField('storageDays', e.target.value)} class="w-full p-2 border rounded" /></div>
+
+                                <div class="col-span-2 border-t pt-2 mt-1">
+                                    <div class="flex items-center gap-2 mb-1.5">
+                                        <input type="checkbox" id="chkEatingMethod" checked={!!currentProduct.showEatingMethod} onChange={e => handleUpdateField('showEatingMethod', e.target.checked)} class="w-4 h-4 text-teal-600 rounded" />
+                                        <label htmlFor="chkEatingMethod" class="font-black text-teal-900 cursor-pointer">加入「食用方式」至標籤中</label>
+                                    </div>
+                                    {currentProduct.showEatingMethod && (
+                                        <input type="text" placeholder="請填寫食用方式..." value={currentProduct.eatingMethod || ''} onChange={e => handleUpdateField('eatingMethod', e.target.value)} class="w-full p-2 border border-teal-300 rounded bg-teal-50/50" />
+                                    )}
+                                </div>
+
+                                <div class="border-t pt-2 col-span-2 grid grid-cols-2 gap-3">
+                                    <div><label class="font-bold text-slate-600 block mb-1">原產地</label><input type="text" value={currentProduct.origin} onChange={e => handleUpdateField('origin', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                    <div><label class="font-bold text-slate-600 block mb-1">負責廠商</label><input type="text" value={currentProduct.manufacturer} onChange={e => handleUpdateField('manufacturer', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                    <div class="col-span-2">
+                                        <label class="font-bold text-slate-600 block mb-1">地址與電話</label>
+                                        <div class="flex gap-2">
+                                            <input type="text" placeholder="電話" value={currentProduct.phone} onChange={e => handleUpdateField('phone', e.target.value)} class="w-1/3 p-2 border rounded" />
+                                            <input type="text" placeholder="地址" value={currentProduct.address} onChange={e => handleUpdateField('address', e.target.value)} class="w-2/3 p-2 border rounded" />
+                                        </div>
+                                    </div>
+                                    <div class="col-span-2"><label class="font-bold text-slate-600 block mb-1">責任險宣告</label><input type="text" value={currentProduct.insurance} onChange={e => handleUpdateField('insurance', e.target.value)} class="w-full p-2 border rounded text-slate-500" /></div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-sm border p-4 flex-grow flex flex-col gap-3">
+                                <h3 class="font-bold text-xs text-teal-800">📊 搜尋樣品名稱併入配方</h3>
+                                <div class="relative">
+                                    <input type="text" placeholder="🔍 請輸入樣品名稱或俗名搜尋材料" value={dbSearchQuery} onChange={e => setDbSearchQuery(e.target.value)} class="w-full p-2.5 border border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-300 rounded text-xs bg-white font-bold" />
+                                    {dbSearchQuery && (
+                                        <div class="absolute left-0 right-0 mt-1 bg-white border shadow-xl max-h-60 overflow-y-auto z-50 rounded-lg text-xs">
+                                            {filteredDb.length === 0 ? <div class="p-3 text-slate-400 text-center">沒有相符原料</div> : filteredDb.map(item => (
+                                                <div key={item.id} class="p-2.5 hover:bg-teal-50 flex justify-between cursor-pointer border-b" onClick={() => {
+                                                    if(!currentProduct.ingredients.some(i => i.name === item.name)){
+                                                        handleUpdateField('ingredients', [...currentProduct.ingredients, { name: item.name, weight: 10 }]);
+                                                    }
+                                                    setDbSearchQuery('');
+                                                }}>
+                                                    <span>
+                                                        <span class="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded text-[10px] mr-1.5">{item.category}</span>
+                                                        <strong class="text-slate-800">{item.name}</strong> 
+                                                    </span>
+                                                    <span class="text-[10px] bg-teal-600 text-white font-bold px-2 py-0.5 rounded shadow-sm">+ 投入配方</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div class="overflow-y-auto max-h-40 border rounded-lg flex-grow">
+                                    <table class="w-full text-xs text-left">
+                                        <thead class="bg-slate-100 sticky top-0 font-bold border-b text-slate-600">
+                                            <tr><th class="p-2">已投入正式原料</th><th class="p-2 text-center w-24">用量(g)</th><th class="p-2 text-center w-12">刪</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {currentProduct.ingredients && currentProduct.ingredients.map((ing, idx) => (
+                                                <tr key={idx} class="border-b">
+                                                    <td class="p-2 font-bold text-slate-700">{ing.name}</td>
+                                                    <td class="p-2 text-center">
+                                                        <input type="number" value={ing.weight} onChange={e => {
+                                                            const newIng = [...currentProduct.ingredients];
+                                                            newIng[idx].weight = Number(e.target.value);
+                                                            handleUpdateField('ingredients', newIng);
+                                                        }} class="w-full border rounded text-center p-1 font-bold text-teal-800" />
+                                                    </td>
+                                                    <td class="p-2 text-center">
+                                                        <button onClick={() => handleUpdateField('ingredients', currentProduct.ingredients.filter((_, i) => i !== idx))} class="text-rose-500"><i class="fa-solid fa-trash"></i></button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="lg:col-span-6 flex flex-col gap-4">
+                            <div class="bg-white rounded-xl shadow-sm border p-3 flex flex-wrap justify-between items-center gap-2 text-xs">
+                                <div class="flex items-center gap-2">
+                                    <button onClick={handleConnectBluetooth} class="bg-blue-600 text-white font-bold px-3 py-2 rounded-lg shadow hover:bg-blue-700 flex items-center gap-1.5">
+                                        <i class="fa-bluetooth-b fab"></i>連接藍芽出單機
+                                    </button>
+                                    <span class="text-[11px] font-bold text-slate-600">{bleStatus}</span>
+                                </div>
+
+                                <div class="flex gap-2">
+                                    <button onClick={handlePrintBluetooth} disabled={!bleCharacteristic} class={`font-bold px-3 py-2 rounded-lg shadow text-xs flex items-center gap-1.5 ${bleCharacteristic ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
+                                        <i class="fa-solid fa-print"></i>藍芽列印
+                                    </button>
+                                    <button onClick={downloadImage} class="bg-slate-800 text-white font-bold px-3 py-2 rounded-lg shadow hover:bg-slate-900 text-xs flex items-center gap-1.5">
+                                        <i class="fa-solid fa-download"></i>下載標籤圖檔
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="bg-slate-200 p-4 rounded-xl border flex justify-center overflow-x-auto">
+                                <div id="nutrition-label-card" class="bg-white p-5 text-black border border-black shadow-lg flex flex-col gap-3" style={{ width: '420px', fontSize: `${currentProduct.fontSize}px`, lineHeight: currentProduct.lineSpacing }}>
+                                    <div class="font-black text-center border-b border-black pb-1 text-sm tracking-widest">品名：{currentProduct.name}</div>
+                                    <div class="grid grid-cols-1 gap-0.5 border-b border-black pb-2">
+                                        <div><strong class="font-bold">內容物名稱：</strong>{sortedIngredientsText}</div>
+                                        <div><strong class="font-bold">淨重：</strong>每份 {currentProduct.servingWeight || 0} 公克 ± {currentProduct.toleranceWeight || 0} 公克</div>
+                                        <div><strong class="font-bold">保存方式：</strong>{currentProduct.storageMethod}</div>
+                                        <div><strong class="font-bold">保存期限：</strong>自製造日起 {currentProduct.storageDays} 天</div>
+                                        {currentProduct.showEatingMethod && (
+                                            <div><strong class="font-bold">食用方式：</strong>{currentProduct.eatingMethod || "無"}</div>
+                                        )}
+                                        <div><strong class="font-bold">原產地：</strong>{currentProduct.origin}</div>
+                                        <div><strong class="font-bold">負責廠商：</strong>{currentProduct.manufacturer}</div>
+                                        <div><strong class="font-bold">聯絡電話：</strong>{currentProduct.phone}</div>
+                                        <div><strong class="font-bold">負責廠商地址：</strong>{currentProduct.address}</div>
+                                        <div class="text-[9px] text-slate-500 mt-0.5">{currentProduct.insurance}</div>
+                                        
+                                        {allergenWarning && (
+                                            <div class="text-[10px] font-bold border border-black border-dashed p-2 mt-1.5 bg-slate-50 leading-relaxed tracking-wide">
+                                                ⚠️ 過敏原提示：{allergenWarning}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div class="border border-black p-1.5 flex flex-col font-sans">
+                                        <div class="text-center font-black text-base tracking-widest mb-0.5">營養標示</div>
+                                        <div class="flex justify-between font-bold"><span>每一份量 {currentProduct.servingWeight || 0} 公克</span></div>
+                                        <div class="flex justify-between font-bold border-b border-black pb-1"><span>本包裝含 1 份</span></div>
+                                        <div class="flex text-center font-bold border-b border-black py-1">
+                                            <div class="w-1/3 text-left"></div><div class="w-1/3 text-right">每份</div><div class="w-1/3 text-right">每 100 公克</div>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1">
+                                            <span class="w-1/3">熱量</span><span class="w-1/3 text-right">{calculatedLabel.serving.kcal} 大卡</span><span class="w-1/3 text-right">{calculatedLabel.p100g.kcal} 大卡</span>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1">
+                                            <span class="w-1/3">蛋白質</span><span class="w-1/3 text-right">{calculatedLabel.serving.protein} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.protein} 公克</span>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1">
+                                            <span class="w-1/3">脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.fat} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.fat} 公克</span>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1 pl-3">
+                                            <span class="w-1/3 text-slate-700">飽和脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.satFat} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.satFat} 公克</span>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1 pl-3">
+                                            <span class="w-1/3 text-slate-700">反式脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.transFat} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.transFat} 公克</span>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1">
+                                            <span class="w-1/3">碳水化合物</span><span class="w-1/3 text-right">{calculatedLabel.serving.carb} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.carb} 公克</span>
+                                        </div>
+                                        <div class="flex justify-between border-b border-black py-1 pl-3">
+                                            <span class="w-1/3 text-slate-700">糖</span><span class="w-1/3 text-right">{calculatedLabel.serving.sugar} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.sugar} 公克</span>
+                                        </div>
+                                        <div class="flex justify-between py-1">
+                                            <span class="w-1/3">鈉</span><span class="w-1/3 text-right">{calculatedLabel.serving.sodium} 毫克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.sodium} 毫克</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
