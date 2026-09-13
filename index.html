@@ -20,7 +20,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        // 解構 React hooks，確保全域環境正常運作
+        // 解構 React hooks
         const { useState, useEffect, useMemo } = React;
 
         // ⚠️ 請填入您 GAS 部署後的網路應用程式 URL
@@ -78,10 +78,10 @@
                     setSyncStatus('🔍 正在從試算表讀取資料庫...');
                     
                     // 讀取產品配方
-                    fetch(`${GAS_API_URL}?action=loadProducts`)
+                    fetch(`${GAS_API_URL}?action=loadProducts`, { redirect: 'follow' })
                         .then(res => res.json())
                         .then(cloudData => {
-                            if (cloudData && cloudData.length > 0) {
+                            if (cloudData && Array.isArray(cloudData) && cloudData.length > 0) {
                                 const updatedCloudData = cloudData.map(p => ({
                                     ...p,
                                     fontSize: p.fontSize || 12,
@@ -92,17 +92,17 @@
                                 setSelectedProductId(updatedCloudData[0].id);
                             }
                         })
-                        .catch(err => console.error(err));
+                        .catch(err => console.error("讀取配方失敗:", err));
 
                     // 讀取原料資料庫
-                    fetch(`${GAS_API_URL}?action=getNutrition`)
+                    fetch(`${GAS_API_URL}?action=getNutrition`, { redirect: 'follow' })
                         .then(res => res.json())
                         .then(result => {
                             if (result && Array.isArray(result)) {
                                 const parsedDb = result.map((row, idx) => ({
                                     id: `db_${idx}`,
                                     category: row[0] || '',
-                                    name: row[1].toString().trim(), 
+                                    name: row[1] ? row[1].toString().trim() : '', 
                                     commonName: row[2] ? row[2].toString().trim() : '', 
                                     kcal: Number(row[3]) || 0, protein: Number(row[4]) || 0, fat: Number(row[5]) || 0,
                                     satFat: Number(row[6]) || 0, transFat: Number(row[7]) || 0, carb: Number(row[8]) || 0,
@@ -110,9 +110,14 @@
                                 }));
                                 setNutritionDb(parsedDb);
                                 setSyncStatus(`✅ 連線成功！已由雲端載入 ${parsedDb.length} 筆樣品原料`);
+                            } else {
+                                setSyncStatus('⚠️ 雲端資料庫格式不符合預期');
                             }
                         })
-                        .catch(err => setSyncStatus('⚠️ 雲端資料庫讀取失敗'));
+                        .catch(err => {
+                            console.error(err);
+                            setSyncStatus('⚠️ 雲端資料庫讀取失敗 (請檢查 GAS 部署權限是否設為所有人)');
+                        });
                 } else {
                     setSyncStatus('⚠️ 運作於單機模式（尚未設定 API 網址）');
                 }
@@ -129,14 +134,15 @@
                 fetch(GAS_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain' },
-                    body: JSON.stringify({ action: 'saveProducts', products: products })
+                    body: JSON.stringify({ action: 'saveProducts', products: products }),
+                    redirect: 'follow'
                 })
                 .then(res => res.json())
                 .then(res => {
                     if (res && res.success) {
                         setSyncStatus(`✅ 成功上傳！共同步 ${res.count} 筆配方至雲端試算表`);
                     } else {
-                        setSyncStatus(`❌ 上傳失敗: ${res.error}`);
+                        setSyncStatus(`❌ 上傳失敗: ${res.error || '未知錯誤'}`);
                     }
                 })
                 .catch(err => setSyncStatus(`❌ 上傳連線失敗`));
@@ -235,7 +241,7 @@
                 });
             };
 
-            // 藍芽連線（GitHub Pages 獨立網址下可 100% 成功執行）
+            // 藍芽連線
             const handleConnectBluetooth = async () => {
                 if (!navigator.bluetooth) {
                     alert("您的瀏覽器不支援 Web Bluetooth，請開啟 Chrome 或 Edge 瀏覽器！");
@@ -277,6 +283,7 @@
                 }
             };
 
+            // 以圖檔 (Raster Image / GS v 0) 方式發送至印表機，防止中文亂碼
             const handlePrintBluetooth = async () => {
                 if (!bleCharacteristic) {
                     alert("請先連線藍芽印表機！");
@@ -284,52 +291,69 @@
                 }
 
                 try {
-                    const ESC = '\x1B';
-                    const GS = '\x1D';
+                    setBleStatus("轉圖中...");
+                    const element = document.getElementById('nutrition-label-card');
+                    
+                    // 轉為 Canvas
+                    const canvas = await html2canvas(element, { scale: 1.5, backgroundColor: "#ffffff" });
+                    const ctx = canvas.getContext('2d');
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-                    let cmd = "";
-                    cmd += ESC + '@';
-                    cmd += ESC + 'a' + '\x01';
-                    cmd += ESC + '!' + '\x30';
-                    cmd += currentProduct.name + "\n\n";
+                    const width = canvas.width;
+                    const height = canvas.height;
+                    const bytesPerLine = Math.ceil(width / 8);
+                    
+                    let cmd = [];
+                    // 初始化印表機
+                    cmd.push(0x1B, 0x40);
+                    // 置中對齊
+                    cmd.push(0x1B, 0x61, 0x01);
+                    
+                    // ESC/POS GS v 0 指令標頭
+                    const xL = bytesPerLine & 0xFF;
+                    const xH = (bytesPerLine >> 8) & 0xFF;
+                    const yL = height & 0xFF;
+                    const yH = (height >> 8) & 0xFF;
+                    
+                    cmd.push(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH);
 
-                    cmd += ESC + '!' + '\x00';
-                    cmd += ESC + 'a' + '\x00';
-                    cmd += "--------------------------------\n";
-                    cmd += `內容物：${sortedIngredientsText}\n`;
-                    cmd += `淨重：${currentProduct.servingWeight}g ± ${currentProduct.toleranceWeight}g\n`;
-                    cmd += `保存方式：${currentProduct.storageMethod}\n`;
-                    cmd += `保存期限：${currentProduct.storageDays}天\n`;
-                    if (currentProduct.showEatingMethod) {
-                        cmd += `食用方式：${currentProduct.eatingMethod || "無"}\n`;
+                    // 點陣轉換
+                    for (let y = 0; y < height; y++) {
+                        for (let x = 0; x < bytesPerLine; x++) {
+                            let byteVal = 0;
+                            for (let bit = 0; bit < 8; bit++) {
+                                const pxX = x * 8 + bit;
+                                if (pxX < width) {
+                                    const idx = (y * width + pxX) * 4;
+                                    const gray = imgData.data[idx] * 0.299 + imgData.data[idx+1] * 0.587 + imgData.data[idx+2] * 0.114;
+                                    if (gray < 128) {
+                                        byteVal |= (0x80 >> bit);
+                                    }
+                                }
+                            }
+                            cmd.push(byteVal);
+                        }
                     }
-                    cmd += `原產地：${currentProduct.origin}\n`;
-                    cmd += `負責廠商：${currentProduct.manufacturer}\n`;
-                    cmd += `電話：${currentProduct.phone}\n`;
-                    if (allergenWarning) {
-                        cmd += `過敏原提示：${allergenWarning}\n`;
-                    }
-                    cmd += "--------------------------------\n";
-                    cmd += "【 營養標示 】 (每份)\n";
-                    cmd += `熱量：${calculatedLabel.serving.kcal} 大卡\n`;
-                    cmd += `蛋白質：${calculatedLabel.serving.protein} g | 脂肪：${calculatedLabel.serving.fat} g\n`;
-                    cmd += `  飽和脂肪：${calculatedLabel.serving.satFat} g | 反式脂肪：${calculatedLabel.serving.transFat} g\n`;
-                    cmd += `碳水化合物：${calculatedLabel.serving.carb} g | 糖：${calculatedLabel.serving.sugar} g\n`;
-                    cmd += `鈉：${calculatedLabel.serving.sodium} mg\n`;
-                    cmd += "--------------------------------\n\n\n";
-                    cmd += GS + 'V' + '\x41' + '\x03';
 
-                    const encoder = new TextEncoder();
-                    const data = encoder.encode(cmd);
+                    // 進紙 4 行與切刀
+                    cmd.push(0x1B, 0x64, 0x04);
+                    cmd.push(0x1D, 0x56, 0x41, 0x03);
 
-                    const chunkSize = 512;
-                    for (let i = 0; i < data.length; i += chunkSize) {
-                        const chunk = data.slice(i, i + chunkSize);
+                    const sendData = new Uint8Array(cmd);
+
+                    // 分區塊傳送
+                    setBleStatus("傳送圖檔中...");
+                    const chunkSize = 128;
+                    for (let i = 0; i < sendData.length; i += chunkSize) {
+                        const chunk = sendData.slice(i, i + chunkSize);
                         await bleCharacteristic.writeValue(chunk);
                     }
 
-                    alert("印表機列印指令發送成功！");
+                    setBleStatus(`已連線：${bleDevice ? bleDevice.name : "藍芽出單機"}`);
+                    alert("標籤圖檔列印發送成功！");
                 } catch (error) {
+                    console.error(error);
+                    setBleStatus(`列印失敗：${error.message}`);
                     alert("列印失敗：" + error.message);
                 }
             };
@@ -492,7 +516,7 @@
 
                                 <div class="flex gap-2">
                                     <button onClick={handlePrintBluetooth} disabled={!bleCharacteristic} class={`font-bold px-3 py-2 rounded-lg shadow text-xs flex items-center gap-1.5 ${bleCharacteristic ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
-                                        <i class="fa-solid fa-print"></i>藍芽列印
+                                        <i class="fa-solid fa-print"></i>藍芽圖檔列印
                                     </button>
                                     <button onClick={downloadImage} class="bg-slate-800 text-white font-bold px-3 py-2 rounded-lg shadow hover:bg-slate-900 text-xs flex items-center gap-1.5">
                                         <i class="fa-solid fa-download"></i>下載標籤圖檔
