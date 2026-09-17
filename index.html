@@ -283,80 +283,92 @@
                 }
             };
 
-            // 以圖檔 (Raster Image / GS v 0) 方式發送至印表機，防止中文亂碼
-            const handlePrintBluetooth = async () => {
-                if (!bleCharacteristic) {
-                    alert("請先連線藍芽印表機！");
-                    return;
-                }
+          // 以圖檔 (Raster Image / GS v 0) 方式發送至印表機，解決 GATT 傳送失敗與中文亂碼問題
+const handlePrintBluetooth = async () => {
+    if (!bleCharacteristic) {
+        alert("請先連線藍芽印表機！");
+        return;
+    }
 
-                try {
-                    setBleStatus("轉圖中...");
-                    const element = document.getElementById('nutrition-label-card');
-                    
-                    // 轉為 Canvas
-                    const canvas = await html2canvas(element, { scale: 1.5, backgroundColor: "#ffffff" });
-                    const ctx = canvas.getContext('2d');
-                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    try {
+        setBleStatus("轉圖中...");
+        const element = document.getElementById('nutrition-label-card');
+        
+        // 1. 轉為 Canvas
+        const canvas = await html2canvas(element, { scale: 1.5, backgroundColor: "#ffffff" });
+        const ctx = canvas.getContext('2d');
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-                    const width = canvas.width;
-                    const height = canvas.height;
-                    const bytesPerLine = Math.ceil(width / 8);
-                    
-                    let cmd = [];
-                    // 初始化印表機
-                    cmd.push(0x1B, 0x40);
-                    // 置中對齊
-                    cmd.push(0x1B, 0x61, 0x01);
-                    
-                    // ESC/POS GS v 0 指令標頭
-                    const xL = bytesPerLine & 0xFF;
-                    const xH = (bytesPerLine >> 8) & 0xFF;
-                    const yL = height & 0xFF;
-                    const yH = (height >> 8) & 0xFF;
-                    
-                    cmd.push(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH);
+        const width = canvas.width;
+        const height = canvas.height;
+        const bytesPerLine = Math.ceil(width / 8);
+        
+        let cmd = [];
+        // 初始化印表機 (ESC @)
+        cmd.push(0x1B, 0x40);
+        // 置中對齊 (ESC a 1)
+        cmd.push(0x1B, 0x61, 0x01);
+        
+        // ESC/POS GS v 0 指令標頭
+        const xL = bytesPerLine & 0xFF;
+        const xH = (bytesPerLine >> 8) & 0xFF;
+        const yL = height & 0xFF;
+        const yH = (height >> 8) & 0xFF;
+        
+        cmd.push(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH);
 
-                    // 點陣轉換
-                    for (let y = 0; y < height; y++) {
-                        for (let x = 0; x < bytesPerLine; x++) {
-                            let byteVal = 0;
-                            for (let bit = 0; bit < 8; bit++) {
-                                const pxX = x * 8 + bit;
-                                if (pxX < width) {
-                                    const idx = (y * width + pxX) * 4;
-                                    const gray = imgData.data[idx] * 0.299 + imgData.data[idx+1] * 0.587 + imgData.data[idx+2] * 0.114;
-                                    if (gray < 128) {
-                                        byteVal |= (0x80 >> bit);
-                                    }
-                                }
-                            }
-                            cmd.push(byteVal);
+        // 點陣圖轉換
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < bytesPerLine; x++) {
+                let byteVal = 0;
+                for (let bit = 0; bit < 8; bit++) {
+                    const pxX = x * 8 + bit;
+                    if (pxX < width) {
+                        const idx = (y * width + pxX) * 4;
+                        const gray = imgData.data[idx] * 0.299 + imgData.data[idx+1] * 0.587 + imgData.data[idx+2] * 0.114;
+                        if (gray < 128) {
+                            byteVal |= (0x80 >> bit);
                         }
                     }
-
-                    // 進紙 4 行與切刀
-                    cmd.push(0x1B, 0x64, 0x04);
-                    cmd.push(0x1D, 0x56, 0x41, 0x03);
-
-                    const sendData = new Uint8Array(cmd);
-
-                    // 分區塊傳送
-                    setBleStatus("傳送圖檔中...");
-                    const chunkSize = 128;
-                    for (let i = 0; i < sendData.length; i += chunkSize) {
-                        const chunk = sendData.slice(i, i + chunkSize);
-                        await bleCharacteristic.writeValue(chunk);
-                    }
-
-                    setBleStatus(`已連線：${bleDevice ? bleDevice.name : "藍芽出單機"}`);
-                    alert("標籤圖檔列印發送成功！");
-                } catch (error) {
-                    console.error(error);
-                    setBleStatus(`列印失敗：${error.message}`);
-                    alert("列印失敗：" + error.message);
                 }
-            };
+                cmd.push(byteVal);
+            }
+        }
+
+        // 進紙 4 行與切刀指令
+        cmd.push(0x1B, 0x64, 0x04);
+        cmd.push(0x1D, 0x56, 0x41, 0x03);
+
+        const sendData = new Uint8Array(cmd);
+
+        // 2. 修正重點：降低封包尺寸至 20 bytes，並加入每區塊 20ms 的延遲 buffer，防止 GATT 阻塞
+        setBleStatus("傳送圖檔中...");
+        const chunkSize = 20; // 縮小封包至 20 bytes (適應大部分藍芽 BLE MTU 限制)
+        
+        // 自動判斷特徵值寫入模式
+        const canWriteWithoutResp = bleCharacteristic.properties.writeWithoutResponse;
+
+        for (let i = 0; i < sendData.length; i += chunkSize) {
+            const chunk = sendData.slice(i, i + chunkSize);
+            
+            if (canWriteWithoutResp) {
+                await bleCharacteristic.writeValueWithoutResponse(chunk);
+            } else {
+                await bleCharacteristic.writeValue(chunk);
+            }
+            
+            // 加入 20 毫秒微小延遲，避免連續發送導致 BLE 崩潰
+            await new Promise(resolve => setTimeout(resolve, 20));
+        }
+
+        setBleStatus(`已連線：${bleDevice ? bleDevice.name : "藍芽出單機"}`);
+        alert("標籤圖檔列印成功！");
+    } catch (error) {
+        console.error(error);
+        setBleStatus(`列印失敗：${error.message}`);
+        alert("列印失敗：" + error.message);
+    }
+};
 
             const handleCreateNewManualProduct = () => {
                 const newId = 'p_man_' + Date.now();
