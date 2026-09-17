@@ -7,8 +7,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
@@ -40,9 +40,9 @@
                 insurance: "本產品已投保南山產物產品責任險",
                 fontSize: 11,          
                 lineSpacing: 1.4,      
-                labelWidth: 8,          // 標籤寬度 (cm) - 預設 8cm (橫式)
-                labelHeight: 5,         // 標籤高度 (cm) - 預設 5cm
-                orientation: "landscape", // "landscape" 橫式 / "portrait" 直式
+                labelWidth: 8,          
+                labelHeight: 5,         
+                orientation: "landscape", 
                 showEatingMethod: true,        
                 eatingMethod: "解凍後即可食用", 
                 ingredients: [
@@ -63,7 +63,6 @@
             const [syncStatus, setSyncStatus] = useState('初始化中...');
             const [applyFdaRules, setApplyFdaRules] = useState(true);
 
-            // 藍芽狀態控制
             const [bleDevice, setBleDevice] = useState(null);
             const [bleCharacteristic, setBleCharacteristic] = useState(null);
             const [bleStatus, setBleStatus] = useState('未連線');
@@ -243,10 +242,9 @@
                 });
             };
 
-            // 藍芽連線
             const handleConnectBluetooth = async () => {
                 if (!navigator.bluetooth) {
-                    alert("您的瀏覽器不支援 Web Bluetooth，請開啟 Chrome 瀏覽器！");
+                    alert("您的瀏覽器不支援 Web Bluetooth，請使用 Chrome 瀏覽器！");
                     return;
                 }
 
@@ -285,7 +283,6 @@
                 }
             };
 
-            // 藍芽圖檔列印 (20 bytes 緩衝分區塊傳送)
             const handlePrintBluetooth = async () => {
                 if (!bleCharacteristic) {
                     alert("請先連線藍芽印表機！");
@@ -305,8 +302,8 @@
                     const bytesPerLine = Math.ceil(width / 8);
                     
                     let cmd = [];
-                    cmd.push(0x1B, 0x40); // 初始化
-                    cmd.push(0x1B, 0x61, 0x01); // 置中
+                    cmd.push(0x1B, 0x40); 
+                    cmd.push(0x1B, 0x61, 0x01); 
                     
                     const xL = bytesPerLine & 0xFF;
                     const xH = (bytesPerLine >> 8) & 0xFF;
@@ -374,7 +371,6 @@
                 return item.name.toLowerCase().includes(query) || (item.commonName && item.commonName.toLowerCase().includes(query));
             });
 
-            // 計算寬高像素（以 1cm ≈ 37.8px 換算顯示）
             const isLandscape = currentProduct.orientation === "landscape";
             const cardWidthPx = (isLandscape ? currentProduct.labelWidth : currentProduct.labelHeight) * 37.8;
             const cardHeightPx = (isLandscape ? currentProduct.labelHeight : currentProduct.labelWidth) * 37.8;
@@ -400,7 +396,6 @@
                                 <button onClick={handleCreateNewManualProduct} class="bg-teal-600 text-white font-bold px-3 text-xs rounded-lg shadow hover:bg-teal-700">新增</button>
                             </div>
 
-                            {/* 標籤尺寸與版面方向自訂 */}
                             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs flex flex-col gap-3 shadow-sm">
                                 <h3 class="font-black text-amber-900 flex items-center justify-between">
                                     <span><i class="fa-solid fa-sliders mr-1.5"></i>📐 標籤尺寸與方向設定</span>
@@ -411,8 +406,8 @@
                                     <div>
                                         <label class="font-bold text-slate-700 block mb-1">版面方向</label>
                                         <select value={currentProduct.orientation} onChange={e => handleUpdateField('orientation', e.target.value)} class="w-full p-1.5 border rounded font-bold text-xs bg-white">
-                                            <option value="landscape">橫式 (寬 > 高)</option>
-                                            <option value="portrait">直式 (高 > 寬)</option>
+                                            <option value="landscape">橫式 (寬 &gt; 高)</option>
+                                            <option value="portrait">直式 (高 &gt; 寬)</option>
                                         </select>
                                     </div>
                                     <div>
@@ -552,7 +547,6 @@
                                 </div>
                             </div>
 
-                            {/* 動態計算寬高尺寸的標籤預覽區域 */}
                             <div class="bg-slate-200 p-4 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[400px]">
                                 <div 
                                     id="nutrition-label-card" 
