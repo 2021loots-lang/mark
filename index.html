@@ -284,7 +284,7 @@
             };
 
             const handlePrintBluetooth = async () => {
-                if (!bleCharacteristic) {
+                if (!bleDevice || !bleCharacteristic) {
                     alert("請先連線藍芽印表機！");
                     return;
                 }
@@ -293,7 +293,8 @@
                     setBleStatus("轉圖中...");
                     const element = document.getElementById('nutrition-label-card');
                     
-                    const canvas = await html2canvas(element, { scale: 1.5, backgroundColor: "#ffffff" });
+                    // 使用 scale: 1.0 降低圖檔大小，防止傳輸資料過大導致藍芽斷線
+                    const canvas = await html2canvas(element, { scale: 1.0, backgroundColor: "#ffffff" });
                     const ctx = canvas.getContext('2d');
                     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
@@ -302,8 +303,8 @@
                     const bytesPerLine = Math.ceil(width / 8);
                     
                     let cmd = [];
-                    cmd.push(0x1B, 0x40); 
-                    cmd.push(0x1B, 0x61, 0x01); 
+                    cmd.push(0x1B, 0x40); // 初始化印表機
+                    cmd.push(0x1B, 0x61, 0x01); // 置中對齊
                     
                     const xL = bytesPerLine & 0xFF;
                     const xH = (bytesPerLine >> 8) & 0xFF;
@@ -327,26 +328,41 @@
                         }
                     }
 
-                    cmd.push(0x1B, 0x64, 0x04);
-                    cmd.push(0x1D, 0x56, 0x41, 0x03);
+                    cmd.push(0x1B, 0x64, 0x04); // 進紙
+                    cmd.push(0x1D, 0x56, 0x41, 0x03); // 切紙
 
                     const sendData = new Uint8Array(cmd);
 
+                    // 檢查連線狀態，斷線則自動嘗試重連
+                    let char = bleCharacteristic;
+                    if (!bleDevice.gatt.connected) {
+                        setBleStatus("重新連線中...");
+                        const server = await bleDevice.gatt.connect();
+                        const services = await server.getPrimaryServices();
+                        for (const service of services) {
+                            const characteristics = await service.getCharacteristics();
+                            char = characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse);
+                            if (char) break;
+                        }
+                        setBleCharacteristic(char);
+                    }
+
                     setBleStatus("傳送圖檔中...");
                     const chunkSize = 20; 
-                    const canWriteWithoutResp = bleCharacteristic.properties.writeWithoutResponse;
+                    const canWriteWithoutResp = char.properties.writeWithoutResponse;
 
                     for (let i = 0; i < sendData.length; i += chunkSize) {
                         const chunk = sendData.slice(i, i + chunkSize);
                         if (canWriteWithoutResp) {
-                            await bleCharacteristic.writeValueWithoutResponse(chunk);
+                            await char.writeValueWithoutResponse(chunk);
                         } else {
-                            await bleCharacteristic.writeValue(chunk);
+                            await char.writeValue(chunk);
                         }
-                        await new Promise(resolve => setTimeout(resolve, 20));
+                        // 增加微小的延遲（50ms），防止出單機接收過快溢位斷線
+                        await new Promise(resolve => setTimeout(resolve, 50));
                     }
 
-                    setBleStatus(`已連線：${bleDevice ? bleDevice.name : "藍芽出單機"}`);
+                    setBleStatus(`已連線：${bleDevice.name || "藍芽出單機"}`);
                     alert("標籤圖檔列印成功！");
                 } catch (error) {
                     console.error(error);
@@ -371,9 +387,18 @@
                 return item.name.toLowerCase().includes(query) || (item.commonName && item.commonName.toLowerCase().includes(query));
             });
 
+            // 修復方向與尺寸邏輯：自動依據選取的方向把較大/較小的數值分配給長寬
             const isLandscape = currentProduct.orientation === "landscape";
-            const cardWidthPx = (isLandscape ? currentProduct.labelWidth : currentProduct.labelHeight) * 37.8;
-            const cardHeightPx = (isLandscape ? currentProduct.labelHeight : currentProduct.labelWidth) * 37.8;
+            const widthCm = isLandscape 
+                ? Math.max(currentProduct.labelWidth, currentProduct.labelHeight) 
+                : Math.min(currentProduct.labelWidth, currentProduct.labelHeight);
+
+            const heightCm = isLandscape 
+                ? Math.min(currentProduct.labelWidth, currentProduct.labelHeight) 
+                : Math.max(currentProduct.labelWidth, currentProduct.labelHeight);
+
+            const cardWidthPx = widthCm * 37.8;
+            const cardHeightPx = heightCm * 37.8;
 
             return (
                 <div class="min-h-screen flex flex-col">
@@ -399,7 +424,7 @@
                             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs flex flex-col gap-3 shadow-sm">
                                 <h3 class="font-black text-amber-900 flex items-center justify-between">
                                     <span><i class="fa-solid fa-sliders mr-1.5"></i>📐 標籤尺寸與方向設定</span>
-                                    <span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-[10px]">目前: {currentProduct.labelWidth}x{currentProduct.labelHeight} cm ({isLandscape ? '橫式' : '直式'})</span>
+                                    <span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-[10px]">目前: {widthCm}x{heightCm} cm ({isLandscape ? '橫式' : '直式'})</span>
                                 </h3>
                                 
                                 <div class="grid grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-amber-200">
