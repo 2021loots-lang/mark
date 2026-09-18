@@ -293,7 +293,6 @@
                     setBleStatus("轉圖中...");
                     const element = document.getElementById('nutrition-label-card');
                     
-                    // 使用 scale: 1.0 降低圖檔大小，防止傳輸資料過大導致藍芽斷線
                     const canvas = await html2canvas(element, { scale: 1.0, backgroundColor: "#ffffff" });
                     const ctx = canvas.getContext('2d');
                     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -333,7 +332,6 @@
 
                     const sendData = new Uint8Array(cmd);
 
-                    // 檢查連線狀態，斷線則自動嘗試重連
                     let char = bleCharacteristic;
                     if (!bleDevice.gatt.connected) {
                         setBleStatus("重新連線中...");
@@ -358,7 +356,6 @@
                         } else {
                             await char.writeValue(chunk);
                         }
-                        // 增加微小的延遲（50ms），防止出單機接收過快溢位斷線
                         await new Promise(resolve => setTimeout(resolve, 50));
                     }
 
@@ -387,7 +384,7 @@
                 return item.name.toLowerCase().includes(query) || (item.commonName && item.commonName.toLowerCase().includes(query));
             });
 
-            // 修復方向與尺寸邏輯：自動依據選取的方向把較大/較小的數值分配給長寬
+            // 判斷橫直式尺寸與長寬數值
             const isLandscape = currentProduct.orientation === "landscape";
             const widthCm = isLandscape 
                 ? Math.max(currentProduct.labelWidth, currentProduct.labelHeight) 
@@ -431,8 +428,8 @@
                                     <div>
                                         <label class="font-bold text-slate-700 block mb-1">版面方向</label>
                                         <select value={currentProduct.orientation} onChange={e => handleUpdateField('orientation', e.target.value)} class="w-full p-1.5 border rounded font-bold text-xs bg-white">
-                                            <option value="landscape">橫式 (寬 &gt; 高)</option>
-                                            <option value="portrait">直式 (高 &gt; 寬)</option>
+                                            <option value="landscape">橫式 (左右雙欄)</option>
+                                            <option value="portrait">直式 (上下單欄)</option>
                                         </select>
                                     </div>
                                     <div>
@@ -575,7 +572,7 @@
                             <div class="bg-slate-200 p-4 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[400px]">
                                 <div 
                                     id="nutrition-label-card" 
-                                    class="bg-white p-4 text-black border border-black shadow-lg flex flex-col justify-between" 
+                                    class="bg-white p-3 text-black border border-black shadow-lg flex flex-col justify-between" 
                                     style={{ 
                                         width: `${cardWidthPx}px`, 
                                         minHeight: `${cardHeightPx}px`,
@@ -583,9 +580,14 @@
                                         lineHeight: currentProduct.lineSpacing 
                                     }}
                                 >
-                                    <div class="flex flex-col gap-2">
-                                        <div class="font-black text-center border-b border-black pb-1 text-sm tracking-widest">品名：{currentProduct.name}</div>
-                                        <div class="grid grid-cols-1 gap-0.5 border-b border-black pb-2">
+                                    {/* 根據橫直式自動切換：橫式為 flex-row（左右雙欄），直式為 flex-col（上下單欄） */}
+                                    <div class={`flex ${isLandscape ? 'flex-row gap-3 items-start' : 'flex-col gap-2'}`}>
+                                        
+                                        {/* 左半部：商品資訊 */}
+                                        <div class={isLandscape ? 'w-[58%] flex flex-col gap-0.5' : 'w-full flex flex-col gap-0.5 border-b border-black pb-2'}>
+                                            <div class="font-black text-center border-b border-black pb-1 text-sm tracking-widest mb-1">
+                                                品名：{currentProduct.name}
+                                            </div>
                                             <div><strong class="font-bold">內容物名稱：</strong>{sortedIngredientsText}</div>
                                             <div><strong class="font-bold">淨重：</strong>每份 {currentProduct.servingWeight || 0} 公克 ± {currentProduct.toleranceWeight || 0} 公克</div>
                                             <div><strong class="font-bold">保存方式：</strong>{currentProduct.storageMethod}</div>
@@ -597,48 +599,50 @@
                                             <div><strong class="font-bold">負責廠商：</strong>{currentProduct.manufacturer}</div>
                                             <div><strong class="font-bold">聯絡電話：</strong>{currentProduct.phone}</div>
                                             <div><strong class="font-bold">負責廠商地址：</strong>{currentProduct.address}</div>
-                                            <div class="text-[9px] text-slate-500 mt-0.5">{currentProduct.insurance}</div>
-                                            
-                                            {allergenWarning && (
-                                                <div class="text-[10px] font-bold border border-black border-dashed p-1.5 mt-1 bg-slate-50 leading-tight">
-                                                    ⚠️ 過敏原提示：{allergenWarning}
-                                                </div>
-                                            )}
+                                            <div class="text-[8px] text-slate-500 mt-0.5">{currentProduct.insurance}</div>
+                                        </div>
+
+                                        {/* 右半部：營養標示 */}
+                                        <div class={isLandscape ? 'w-[42%] border border-black p-1 flex flex-col font-sans' : 'w-full border border-black p-1 flex flex-col font-sans mt-2'}>
+                                            <div class="text-center font-black text-xs tracking-widest mb-0.5">營養標示</div>
+                                            <div class="flex justify-between font-bold text-[9px]"><span>每一份量 {currentProduct.servingWeight || 0} 公克</span></div>
+                                            <div class="flex justify-between font-bold text-[9px] border-b border-black pb-0.5"><span>本包裝含 1 份</span></div>
+                                            <div class="flex text-center font-bold border-b border-black py-0.5 text-[9px]">
+                                                <div class="w-1/3 text-left"></div><div class="w-1/3 text-right">每份</div><div class="w-1/3 text-right">每100g</div>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5">
+                                                <span class="w-1/3">熱量</span><span class="w-1/3 text-right">{calculatedLabel.serving.kcal}大卡</span><span class="w-1/3 text-right">{calculatedLabel.p100g.kcal}大卡</span>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5">
+                                                <span class="w-1/3">蛋白質</span><span class="w-1/3 text-right">{calculatedLabel.serving.protein}g</span><span class="w-1/3 text-right">{calculatedLabel.p100g.protein}g</span>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5">
+                                                <span class="w-1/3">脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.fat}g</span><span class="w-1/3 text-right">{calculatedLabel.p100g.fat}g</span>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5 pl-1.5">
+                                                <span class="w-1/3 text-slate-700">飽和脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.satFat}g</span><span class="w-1/3 text-right">{calculatedLabel.p100g.satFat}g</span>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5 pl-1.5">
+                                                <span class="w-1/3 text-slate-700">反式脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.transFat}g</span><span class="w-1/3 text-right">{calculatedLabel.p100g.transFat}g</span>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5">
+                                                <span class="w-1/3">碳水化合物</span><span class="w-1/3 text-right">{calculatedLabel.serving.carb}g</span><span class="w-1/3 text-right">{calculatedLabel.p100g.carb}g</span>
+                                            </div>
+                                            <div class="flex justify-between border-b border-black py-0.5 pl-1.5">
+                                                <span class="w-1/3 text-slate-700">糖</span><span class="w-1/3 text-right">{calculatedLabel.serving.sugar}g</span><span class="w-1/3 text-right">{calculatedLabel.p100g.sugar}g</span>
+                                            </div>
+                                            <div class="flex justify-between py-0.5">
+                                                <span class="w-1/3">鈉</span><span class="w-1/3 text-right">{calculatedLabel.serving.sodium}mg</span><span class="w-1/3 text-right">{calculatedLabel.p100g.sodium}mg</span>
+                                            </div>
                                         </div>
                                     </div>
 
-                                    <div class="border border-black p-1.5 flex flex-col font-sans mt-2">
-                                        <div class="text-center font-black text-sm tracking-widest mb-0.5">營養標示</div>
-                                        <div class="flex justify-between font-bold text-[10px]"><span>每一份量 {currentProduct.servingWeight || 0} 公克</span></div>
-                                        <div class="flex justify-between font-bold text-[10px] border-b border-black pb-0.5"><span>本包裝含 1 份</span></div>
-                                        <div class="flex text-center font-bold border-b border-black py-0.5 text-[10px]">
-                                            <div class="w-1/3 text-left"></div><div class="w-1/3 text-right">每份</div><div class="w-1/3 text-right">每 100 公克</div>
+                                    {/* 底部警語區域 */}
+                                    {allergenWarning && (
+                                        <div class="text-[9px] font-bold border border-black border-dashed p-1 mt-1.5 bg-slate-50 leading-tight">
+                                            ⚠️ 過敏原提示：{allergenWarning}
                                         </div>
-                                        <div class="flex justify-between border-b border-black py-0.5">
-                                            <span class="w-1/3">熱量</span><span class="w-1/3 text-right">{calculatedLabel.serving.kcal} 大卡</span><span class="w-1/3 text-right">{calculatedLabel.p100g.kcal} 大卡</span>
-                                        </div>
-                                        <div class="flex justify-between border-b border-black py-0.5">
-                                            <span class="w-1/3">蛋白質</span><span class="w-1/3 text-right">{calculatedLabel.serving.protein} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.protein} 公克</span>
-                                        </div>
-                                        <div class="flex justify-between border-b border-black py-0.5">
-                                            <span class="w-1/3">脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.fat} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.fat} 公克</span>
-                                        </div>
-                                        <div class="flex justify-between border-b border-black py-0.5 pl-2">
-                                            <span class="w-1/3 text-slate-700">飽和脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.satFat} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.satFat} 公克</span>
-                                        </div>
-                                        <div class="flex justify-between border-b border-black py-0.5 pl-2">
-                                            <span class="w-1/3 text-slate-700">反式脂肪</span><span class="w-1/3 text-right">{calculatedLabel.serving.transFat} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.transFat} 公克</span>
-                                        </div>
-                                        <div class="flex justify-between border-b border-black py-0.5">
-                                            <span class="w-1/3">碳水化合物</span><span class="w-1/3 text-right">{calculatedLabel.serving.carb} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.carb} 公克</span>
-                                        </div>
-                                        <div class="flex justify-between border-b border-black py-0.5 pl-2">
-                                            <span class="w-1/3 text-slate-700">糖</span><span class="w-1/3 text-right">{calculatedLabel.serving.sugar} 公克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.sugar} 公克</span>
-                                        </div>
-                                        <div class="flex justify-between py-0.5">
-                                            <span class="w-1/3">鈉</span><span class="w-1/3 text-right">{calculatedLabel.serving.sodium} 毫克</span><span class="w-1/3 text-right">{calculatedLabel.p100g.sodium} 毫克</span>
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
