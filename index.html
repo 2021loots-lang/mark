@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智慧食品營養標籤產生器 V3.8 (線條還原防壓字版)</title>
+    <title>智慧食品營養標籤產生器 V3.9 (徹底解決壓字Bug版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin crossorigin="anonymous"></script>
@@ -24,9 +24,13 @@
             text-rendering: optimizeLegibility;
         }
 
-        /* 使用 SVG 替代傳統 border 以免 html2canvas 渲染偏移 */
-        .dashed-border-box {
-            background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' stroke='black' stroke-width='1.5' stroke-dasharray='4%2c 3' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+        /* 移除元素內建邊框 */
+        .no-native-border * {
+            border: 0 !important;
+            border-top: 0 !important;
+            border-bottom: 0 !important;
+            border-left: 0 !important;
+            border-right: 0 !important;
         }
     </style>
 </head>
@@ -80,7 +84,7 @@
             const [applyFdaRules, setApplyFdaRules] = useState(true);
 
             useEffect(() => {
-                const local = localStorage.getItem('local_products_v38');
+                const local = localStorage.getItem('local_products_v39');
                 if (local) {
                     try { setProducts(JSON.parse(local)); } catch(e) { console.log(e); }
                 }
@@ -129,7 +133,7 @@
 
             const handleSyncToCloud = () => {
                 setSyncStatus('🚀 正在傳輸資料至 Google 試算表...');
-                localStorage.setItem('local_products_v38', JSON.stringify(products));
+                localStorage.setItem('local_products_v39', JSON.stringify(products));
 
                 fetch(GAS_API_URL, {
                     method: 'POST',
@@ -237,7 +241,7 @@
                     logging: false
                 }).then(canvas => {
                     const link = document.createElement('a');
-                    link.download = `${currentProduct.name}_完美標籤.png`;
+                    link.download = `${currentProduct.name}_精準對齊標籤.png`;
                     link.href = canvas.toDataURL('image/png');
                     link.click();
                 });
@@ -253,7 +257,7 @@
                 <div class="min-h-screen flex flex-col">
                     <header class="bg-slate-900 text-white shadow-md py-4 px-6 flex justify-between items-center">
                         <div>
-                            <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品標籤產生器 V3.8 (線條還原防壓字版)</h1>
+                            <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品標籤產生器 V3.9</h1>
                             <p class="text-[10px] text-slate-300 font-bold">{syncStatus}</p>
                         </div>
                         <button onClick={handleSyncToCloud} class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-4 py-2 rounded-lg text-xs">
@@ -288,22 +292,21 @@
                         <div class="lg:col-span-7 flex flex-col gap-4">
                             <div class="flex justify-end">
                                 <button onClick={downloadImage} class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2 rounded-lg shadow text-xs">
-                                    <i class="fa-solid fa-download mr-1.5"></i>下載完美圖片
+                                    <i class="fa-solid fa-download mr-1.5"></i>下載圖片 (絕對精準不壓字)
                                 </button>
                             </div>
 
                             <div class="bg-slate-300 p-6 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[420px]">
-                                {/* 最外層：以 3px 黑色區塊背景作為最外框 */}
+                                {/* 標籤主體：最外層包裹黑邊背景 */}
                                 <div 
                                     id="nutrition-label-card" 
-                                    class="sharp-print-target bg-black p-[3px] text-black shadow-2xl relative" 
+                                    class="sharp-print-target no-native-border bg-black p-[2px] shadow-2xl relative" 
                                     style={{ 
                                         width: `${cardWidthPx}px`, 
                                         height: `${cardHeightPx}px`,
                                         boxSizing: 'border-box'
                                     }}
                                 >
-                                    {/* 內部白色卡片主體 */}
                                     <div 
                                         class="w-full h-full bg-white p-2 flex flex-col justify-between"
                                         style={{
@@ -313,15 +316,15 @@
                                     >
                                         <div class={`flex ${isLandscape ? 'flex-row gap-2' : 'flex-col gap-2'} h-full items-stretch`}>
                                             
-                                            {/* 左欄：商品基本標示 */}
-                                            <div class={isLandscape ? 'w-[55%] flex flex-col justify-between pr-1' : 'w-full flex flex-col gap-1'}>
+                                            {/* 左欄：基本資訊 */}
+                                            <div class={isLandscape ? 'w-[54%] flex flex-col justify-between pr-1' : 'w-full flex flex-col gap-1'}>
                                                 <div class="flex flex-col">
                                                     <div class="font-black text-center text-[1.15em] py-0.5">
                                                         品名：{currentProduct.name}
                                                     </div>
                                                     
-                                                    {/* 純 HTML 獨立分隔線 (防壓字) */}
-                                                    <div class="w-full h-[2px] bg-black my-1"></div>
+                                                    {/* 純 HTML 實體橫線塊，解決壓字 Bug */}
+                                                    <div class="w-full bg-black my-1" style={{ height: '2px' }}></div>
 
                                                     <div class="flex flex-col gap-0.5">
                                                         <div><strong class="font-black">內容物：</strong>{sortedIngredientsText}</div>
@@ -340,64 +343,69 @@
                                                 <div class="text-[0.65em] text-black font-bold mt-1 leading-tight">{currentProduct.insurance}</div>
                                             </div>
 
-                                            {/* 右欄：營養標示 (外層包覆 2px 黑色背景作為獨立邊框) */}
-                                            <div class={isLandscape ? 'w-[45%] bg-black p-[2px] flex flex-col' : 'w-full bg-black p-[2px] flex flex-col'}>
-                                                <div class="w-full h-full bg-white p-1.5 flex flex-col">
-                                                    
-                                                    <div class="text-center font-black text-[1.1em] py-0.5">
-                                                        營養標示
+                                            {/* 右欄：營養標示 */}
+                                            <div class={isLandscape ? 'w-[46%] bg-black p-[1.5px] flex flex-col' : 'w-full bg-black p-[1.5px] flex flex-col'}>
+                                                <div class="w-full h-full bg-white p-1.5 flex flex-col justify-between">
+                                                    <div>
+                                                        <div class="text-center font-black text-[1.1em] py-0.5">
+                                                            營養標示
+                                                        </div>
+
+                                                        {/* 純 HTML 實體橫線 */}
+                                                        <div class="w-full bg-black my-1" style={{ height: '1.5px' }}></div>
+
+                                                        <div class="text-[0.8em] font-bold leading-tight">
+                                                            <div>每一份量 {currentProduct.servingWeight || 0} 公克</div>
+                                                            <div>本包裝含 1 份</div>
+                                                        </div>
+
+                                                        {/* 純 HTML 實體粗橫線 */}
+                                                        <div class="w-full bg-black my-1" style={{ height: '2.5px' }}></div>
+
+                                                        {/* 標頭 */}
+                                                        <div class="flex text-[0.8em] font-black w-full py-0.5">
+                                                            <div class="w-5/12 text-left"></div>
+                                                            <div class="w-3/12 text-right">每份</div>
+                                                            <div class="w-4/12 text-right">每100g</div>
+                                                        </div>
+
+                                                        {/* 純 HTML 實體細橫線 */}
+                                                        <div class="w-full bg-black mb-1" style={{ height: '1px' }}></div>
+
+                                                        {/* 營養內容 */}
+                                                        <div class="flex flex-col text-[0.78em] font-bold w-full gap-0.5">
+                                                            {[
+                                                                ["熱量", `${calculatedLabel.serving.kcal}大卡`, `${calculatedLabel.p100g.kcal}大卡`],
+                                                                ["蛋白質", `${calculatedLabel.serving.protein}g`, `${calculatedLabel.p100g.protein}g`],
+                                                                ["脂肪", `${calculatedLabel.serving.fat}g`, `${calculatedLabel.p100g.fat}g`],
+                                                                ["  飽和脂肪", `${calculatedLabel.serving.satFat}g`, `${calculatedLabel.p100g.satFat}g`],
+                                                                ["  反式脂肪", `${calculatedLabel.serving.transFat}g`, `${calculatedLabel.p100g.transFat}g`],
+                                                                ["碳水化合物", `${calculatedLabel.serving.carb}g`, `${calculatedLabel.p100g.carb}g`],
+                                                                ["  糖", `${calculatedLabel.serving.sugar}g`, `${calculatedLabel.p100g.sugar}g`],
+                                                                ["鈉", `${calculatedLabel.serving.sodium}mg`, `${calculatedLabel.p100g.sodium}mg`]
+                                                            ].map((item, idx) => (
+                                                                <div key={idx} class="flex items-center w-full">
+                                                                    <div class="w-5/12 text-left whitespace-nowrap">{item[0]}</div>
+                                                                    <div class="w-3/12 text-right whitespace-nowrap">{item[1]}</div>
+                                                                    <div class="w-4/12 text-right whitespace-nowrap">{item[2]}</div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
                                                     </div>
-
-                                                    {/* 獨立分隔線 */}
-                                                    <div class="w-full h-[1.5px] bg-black my-1"></div>
-
-                                                    <div class="text-[0.8em] font-bold leading-tight">
-                                                        <div>每一份量 {currentProduct.servingWeight || 0} 公克</div>
-                                                        <div>本包裝含 1 份</div>
-                                                    </div>
-
-                                                    {/* 獨立粗分隔線 */}
-                                                    <div class="w-full h-[3px] bg-black my-1"></div>
-
-                                                    {/* 營養標頭 */}
-                                                    <div class="flex text-[0.8em] font-black w-full py-0.5">
-                                                        <div class="w-5/12 text-left"></div>
-                                                        <div class="w-3/12 text-right">每份</div>
-                                                        <div class="w-4/12 text-right">每100g</div>
-                                                    </div>
-
-                                                    {/* 獨立細分隔線 */}
-                                                    <div class="w-full h-[1.5px] bg-black mb-1"></div>
-
-                                                    {/* 營養數值表 */}
-                                                    <div class="flex flex-col text-[0.78em] font-bold w-full gap-0.5">
-                                                        {[
-                                                            ["熱量", `${calculatedLabel.serving.kcal}大卡`, `${calculatedLabel.p100g.kcal}大卡`],
-                                                            ["蛋白質", `${calculatedLabel.serving.protein}g`, `${calculatedLabel.p100g.protein}g`],
-                                                            ["脂肪", `${calculatedLabel.serving.fat}g`, `${calculatedLabel.p100g.fat}g`],
-                                                            ["  飽和脂肪", `${calculatedLabel.serving.satFat}g`, `${calculatedLabel.p100g.satFat}g`],
-                                                            ["  反式脂肪", `${calculatedLabel.serving.transFat}g`, `${calculatedLabel.p100g.transFat}g`],
-                                                            ["碳水化合物", `${calculatedLabel.serving.carb}g`, `${calculatedLabel.p100g.carb}g`],
-                                                            ["  糖", `${calculatedLabel.serving.sugar}g`, `${calculatedLabel.p100g.sugar}g`],
-                                                            ["鈉", `${calculatedLabel.serving.sodium}mg`, `${calculatedLabel.p100g.sodium}mg`]
-                                                        ].map((item, idx) => (
-                                                            <div key={idx} class="flex items-center w-full">
-                                                                <div class="w-5/12 text-left whitespace-nowrap">{item[0]}</div>
-                                                                <div class="w-3/12 text-right whitespace-nowrap">{item[1]}</div>
-                                                                <div class="w-4/12 text-right whitespace-nowrap">{item[2]}</div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-
                                                 </div>
                                             </div>
 
                                         </div>
 
-                                        {/* 底部過敏原警告 (SVG 虛線框，絕不移位) */}
+                                        {/* 底部過敏原：純 SVG 獨立繪製虛線框，絕對不偏移 */}
                                         {allergenWarning && (
-                                            <div class="text-[0.7em] font-black p-1 mt-1 leading-tight dashed-border-box flex items-center">
-                                                ⚠️ {allergenWarning}
+                                            <div class="relative w-full mt-1 p-1 flex items-center">
+                                                <svg class="absolute inset-0 w-full h-full" style={{ overflow: 'visible' }}>
+                                                    <rect x="0" y="0" width="100%" height="100%" fill="none" stroke="black" strokeWidth="1.5" strokeDasharray="4 3" />
+                                                </svg>
+                                                <span class="text-[0.7em] font-black leading-tight relative z-10">
+                                                    ⚠️ {allergenWarning}
+                                                </span>
                                             </div>
                                         )}
 
