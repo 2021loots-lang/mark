@@ -572,10 +572,12 @@
                             <div class="bg-slate-200 p-4 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[400px]">
                                 <div 
                                     id="nutrition-label-card" 
-                                    class="bg-white p-3 text-black border border-black shadow-lg flex flex-col justify-between" 
+                                    class="bg-white p-3 text-black border border-black shadow-lg flex flex-col justify-between overflow-hidden" 
                                     style={{ 
                                         width: `${cardWidthPx}px`, 
-                                        minHeight: `${cardHeightPx}px`,
+                                        height: `${cardHeightPx}px`,
+                                        maxHeight: `${cardHeightPx}px`,
+                                        boxSizing: 'border-box',
                                         fontSize: `${currentProduct.fontSize}px`, 
                                         lineHeight: currentProduct.lineSpacing 
                                     }}
@@ -604,10 +606,10 @@
 
                                         {/* 右半部：營養標示 */}
                                         <div class={isLandscape ? 'w-[42%] border border-black p-1 flex flex-col font-sans' : 'w-full border border-black p-1 flex flex-col font-sans mt-2'}>
-                                            <div class="text-center font-black text-xs tracking-widest mb-0.5">營養標示</div>
-                                            <div class="flex justify-between font-bold text-[9px]"><span>每一份量 {currentProduct.servingWeight || 0} 公克</span></div>
-                                            <div class="flex justify-between font-bold text-[9px] border-b border-black pb-0.5"><span>本包裝含 1 份</span></div>
-                                            <div class="flex text-center font-bold border-b border-black py-0.5 text-[9px]">
+                                            <div class="text-center font-black tracking-widest mb-0.5" style={{ fontSize: '1.1em' }}>營養標示</div>
+                                            <div class="flex justify-between font-bold"><span>每一份量 {currentProduct.servingWeight || 0} 公克</span></div>
+                                            <div class="flex justify-between font-bold border-b border-black pb-0.5"><span>本包裝含 1 份</span></div>
+                                            <div class="flex text-center font-bold border-b border-black py-0.5">
                                                 <div class="w-1/3 text-left"></div><div class="w-1/3 text-right">每份</div><div class="w-1/3 text-right">每100g</div>
                                             </div>
                                             <div class="flex justify-between border-b border-black py-0.5">
