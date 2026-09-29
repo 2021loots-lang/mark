@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智慧食品營養標籤產生器 V3.4（徹底防邊框跑版修復版）</title>
+    <title>智慧食品營養標籤產生器 V3.3</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin crossorigin="anonymous"></script>
@@ -24,32 +24,24 @@
             -webkit-font-smoothing: antialiased;
             -moz-osx-font-smoothing: grayscale;
             text-rendering: optimizeLegibility;
+            border-collapse: collapse;
         }
 
-        /* 解決 html2canvas 邊框偏移跑版關鍵：使用內部虛擬線條 */
-        .grid-row-line {
-            position: relative;
-        }
-        .grid-row-line::after {
-            content: "";
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            height: 1px;
-            background-color: #000000;
-            pointer-events: none;
+        /* 營養標示表格專用精細邊框，防止錯位 */
+        .nutrition-table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: fixed;
         }
 
-        .grid-row-thick-line::after {
-            content: "";
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            height: 2px;
-            background-color: #000000;
-            pointer-events: none;
+        .nutrition-table th, .nutrition-table td {
+            border-bottom: 1px solid #000000;
+            padding: 1px 2px;
+            vertical-align: middle;
+        }
+
+        .nutrition-table tr:last-child td {
+            border-bottom: none;
         }
     </style>
 </head>
@@ -99,6 +91,7 @@
             const [products, setProducts] = useState(DEFAULT_PRODUCTS);
             const [nutritionDb, setNutritionDb] = useState([]); 
             const [selectedProductId, setSelectedProductId] = useState('p_default');
+            const [dbSearchQuery, setDbSearchQuery] = useState('');
             const [syncStatus, setSyncStatus] = useState('初始化中...');
             const [applyFdaRules, setApplyFdaRules] = useState(true);
 
@@ -107,7 +100,7 @@
             const [bleStatus, setBleStatus] = useState('未連線');
 
             useEffect(() => {
-                const local = localStorage.getItem('local_products_v34');
+                const local = localStorage.getItem('local_products_v33');
                 if (local) {
                     try { setProducts(JSON.parse(local)); } catch(e) { console.log(e); }
                 }
@@ -147,16 +140,27 @@
                                     sugar: Number(row[9]) || 0, sodium: Number(row[10]) || 0      
                                 }));
                                 setNutritionDb(parsedDb);
-                                setSyncStatus(`✅ 連線成功！已載入 ${parsedDb.length} 筆原料`);
+                                setSyncStatus(`✅ 連線成功！已由雲端載入 ${parsedDb.length} 筆樣品原料`);
+                            } else {
+                                setSyncStatus('⚠️ 雲端資料庫格式不符合預期');
                             }
                         })
-                        .catch(err => setSyncStatus('⚠️ 雲端資料庫讀取失敗'));
+                        .catch(err => {
+                            console.error(err);
+                            setSyncStatus('⚠️ 雲端資料庫讀取失敗');
+                        });
+                } else {
+                    setSyncStatus('⚠️ 運作於單機模式（尚未設定 API 網址）');
                 }
             }, []);
 
             const handleSyncToCloud = () => {
+                if (!GAS_API_URL || GAS_API_URL.includes("填入您的")) {
+                    alert("請先在 HTML 內設定 GAS_API_URL！");
+                    return;
+                }
                 setSyncStatus('🚀 正在傳輸資料至 Google 試算表...');
-                localStorage.setItem('local_products_v34', JSON.stringify(products));
+                localStorage.setItem('local_products_v33', JSON.stringify(products));
 
                 fetch(GAS_API_URL, {
                     method: 'POST',
@@ -166,7 +170,11 @@
                 })
                 .then(res => res.json())
                 .then(res => {
-                    if (res && res.success) setSyncStatus(`✅ 成功上傳雲端`);
+                    if (res && res.success) {
+                        setSyncStatus(`✅ 成功上傳！共同步 ${res.count} 筆配方至雲端試算表`);
+                    } else {
+                        setSyncStatus(`❌ 上傳失敗: ${res.error || '未知錯誤'}`);
+                    }
                 })
                 .catch(err => setSyncStatus(`❌ 上傳連線失敗`));
             };
@@ -193,7 +201,7 @@
                         });
                     });
                 }
-                return detected.length > 0 ? `過敏原提示：本產品含有${detected.join('、')}及其製品，不適合對其過敏體質者食用。` : "";
+                return detected.length > 0 ? `本產品含有${detected.join('、')}及其製品，不適合對其過敏體質者食用。` : "";
             }, [currentProduct]);
 
             const sortedIngredientsText = useMemo(() => {
@@ -236,6 +244,7 @@
                 };
 
                 return {
+                    totalRawWeight: (Math.round(totalRawWeight * 10) / 10).toFixed(1),
                     serving: {
                         kcal: format(kcal * factorServing, true, 'kcal'), protein: format(protein * factorServing, false, 'protein'),
                         fat: format(fat * factorServing, false, 'fat'), satFat: format(satFat * factorServing, false, 'satFat'),
@@ -257,18 +266,157 @@
 
             const downloadImage = () => {
                 const element = document.getElementById('nutrition-label-card');
-                html2canvas(element, { 
-                    scale: 3, 
-                    backgroundColor: "#ffffff",
-                    useCORS: true,
-                    logging: false
-                }).then(canvas => {
+                html2canvas(element, { scale: 3, backgroundColor: "#ffffff" }).then(canvas => {
                     const link = document.createElement('a');
-                    link.download = `${currentProduct.name}_精確標籤.png`;
+                    link.download = `${currentProduct.name}_高清標籤.png`;
                     link.href = canvas.toDataURL('image/png');
                     link.click();
                 });
             };
+
+            const handleConnectBluetooth = async () => {
+                if (!navigator.bluetooth) {
+                    alert("您的瀏覽器不支援 Web Bluetooth，請使用 Chrome 瀏覽器！");
+                    return;
+                }
+
+                try {
+                    setBleStatus("搜尋中...");
+                    const device = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: [
+                            '000018f0-0000-1000-8000-00805f9b34fb',
+                            '00001101-0000-1000-8000-00805f9b34fb',
+                            '49535343-fe7d-4ae5-8fa9-9fafd205e455'
+                        ]
+                    });
+
+                    setBleStatus(`連接至 ${device.name}...`);
+                    const server = await device.gatt.connect();
+                    const services = await server.getPrimaryServices();
+                    let targetChar = null;
+
+                    for (const service of services) {
+                        const characteristics = await service.getCharacteristics();
+                        targetChar = characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse);
+                        if (targetChar) break;
+                    }
+
+                    if (targetChar) {
+                        setBleDevice(device);
+                        setBleCharacteristic(targetChar);
+                        setBleStatus(`已連線：${device.name || "藍芽出單機"}`);
+                    } else {
+                        throw new Error("找不到可寫入的藍芽通道");
+                    }
+                } catch (error) {
+                    console.error(error);
+                    setBleStatus(`連線失敗：${error.message}`);
+                }
+            };
+
+            const handlePrintBluetooth = async () => {
+                if (!bleDevice || !bleCharacteristic) {
+                    alert("請先連線藍芽印表機！");
+                    return;
+                }
+
+                try {
+                    setBleStatus("高清晰轉圖中...");
+                    const element = document.getElementById('nutrition-label-card');
+                    
+                    // 使用 scale: 2 高清渲染，確保文字銳利不糊掉
+                    const canvas = await html2canvas(element, { scale: 2, backgroundColor: "#ffffff" });
+                    const ctx = canvas.getContext('2d');
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                    const width = canvas.width;
+                    const height = canvas.height;
+                    const bytesPerLine = Math.ceil(width / 8);
+                    
+                    let cmd = [];
+                    cmd.push(0x1B, 0x40); // 初始化
+                    cmd.push(0x1B, 0x61, 0x01); // 居中
+                    
+                    const xL = bytesPerLine & 0xFF;
+                    const xH = (bytesPerLine >> 8) & 0xFF;
+                    const yL = height & 0xFF;
+                    const yH = (height >> 8) & 0xFF;
+                    
+                    cmd.push(0x1D, 0x76, 0x30, 0x00, xL, xH, yL, yH);
+
+                    // 純黑白二值化（極致消除鋸齒與霧感）
+                    for (let y = 0; y < height; y++) {
+                        for (let x = 0; x < bytesPerLine; x++) {
+                            let byteVal = 0;
+                            for (let bit = 0; bit < 8; bit++) {
+                                const pxX = x * 8 + bit;
+                                if (pxX < width) {
+                                    const idx = (y * width + pxX) * 4;
+                                    const gray = imgData.data[idx] * 0.299 + imgData.data[idx+1] * 0.587 + imgData.data[idx+2] * 0.114;
+                                    if (gray < 160) byteVal |= (0x80 >> bit); // 強制門檻，杜絕灰階
+                                }
+                            }
+                            cmd.push(byteVal);
+                        }
+                    }
+
+                    cmd.push(0x1B, 0x64, 0x04); 
+                    cmd.push(0x1D, 0x56, 0x41, 0x03); 
+
+                    const sendData = new Uint8Array(cmd);
+
+                    let char = bleCharacteristic;
+                    if (!bleDevice.gatt.connected) {
+                        setBleStatus("重新連線中...");
+                        const server = await bleDevice.gatt.connect();
+                        const services = await server.getPrimaryServices();
+                        for (const service of services) {
+                            const characteristics = await service.getCharacteristics();
+                            char = characteristics.find(c => c.properties.write || c.properties.writeWithoutResponse);
+                            if (char) break;
+                        }
+                        setBleCharacteristic(char);
+                    }
+
+                    setBleStatus("傳送圖檔中...");
+                    const chunkSize = 20; 
+                    const canWriteWithoutResp = char.properties.writeWithoutResponse;
+
+                    for (let i = 0; i < sendData.length; i += chunkSize) {
+                        const chunk = sendData.slice(i, i + chunkSize);
+                        if (canWriteWithoutResp) {
+                            await char.writeValueWithoutResponse(chunk);
+                        } else {
+                            await char.writeValue(chunk);
+                        }
+                        await new Promise(resolve => setTimeout(resolve, 30));
+                    }
+
+                    setBleStatus(`已連線：${bleDevice.name || "藍芽出單機"}`);
+                    alert("高清晰標籤列印完成！");
+                } catch (error) {
+                    console.error(error);
+                    setBleStatus(`列印失敗：${error.message}`);
+                    alert("列印失敗：" + error.message);
+                }
+            };
+
+            const handleCreateNewManualProduct = () => {
+                const newId = 'p_man_' + Date.now();
+                setProducts(prev => [{
+                    id: newId, name: "全新手動輸入配方", servingWeight: 50, toleranceWeight: 5, lossRate: 0, storageMethod: "冷凍保存", storageDays: 7,
+                    origin: "台灣", manufacturer: "露癡工作室", phone: "03-3520080", address: "桃園市蘆竹區錦秀街13巷13號",
+                    insurance: "本產品已投保南山產物產品責任險", fontSize: 11, lineSpacing: 1.25, labelWidth: 8, labelHeight: 5, orientation: "landscape", showEatingMethod: true, eatingMethod: "解凍後即可食用", ingredients: []
+                }, ...prev]);
+                setSelectedProductId(newId);
+            };
+
+            const filteredDb = nutritionDb.filter(item => {
+                const query = dbSearchQuery.toLowerCase().trim();
+                if (!query) return false;
+                return item.name.toLowerCase().includes(query) || (item.commonName && item.commonName.toLowerCase().includes(query));
+            });
 
             const isLandscape = currentProduct.orientation === "landscape";
             const widthCm = isLandscape 
@@ -284,43 +432,128 @@
 
             return (
                 <div class="min-h-screen flex flex-col">
-                    <header class="bg-slate-900 text-white shadow-md py-4 px-6 flex justify-between items-center">
-                        <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品標籤產生器 V3.4（格線不對齊修復版）</h1>
-                        <button onClick={handleSyncToCloud} class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-4 py-2 rounded-lg text-xs">
-                            儲存並同步
+                    <header class="bg-gradient-to-r from-teal-800 to-emerald-900 text-white shadow-md py-4 px-6 flex justify-between items-center flex-wrap gap-4">
+                        <div>
+                            <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品包裝標籤產生器 V3.3（高清晰修復版）</h1>
+                            <p class="text-[10px] text-teal-200 font-bold">{syncStatus}</p>
+                        </div>
+                        <button onClick={handleSyncToCloud} class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-4 py-2 rounded-lg shadow-md text-xs transition duration-200">
+                            <i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>儲存並上傳至試算表
                         </button>
                     </header>
 
                     <main class="flex-grow max-w-7xl mx-auto px-4 py-6 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        <div class="lg:col-span-5 flex flex-col gap-4">
-                            <div class="bg-white rounded-xl border p-4 text-xs flex flex-col gap-3">
-                                <div>
-                                    <label class="font-bold block mb-1">產品品名</label>
+                        <div class="lg:col-span-6 flex flex-col gap-6">
+                            <div class="bg-white rounded-xl shadow-sm border p-4 flex gap-2">
+                                <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} class="flex-1 p-2 border text-xs rounded font-bold bg-white">
+                                    {products.map(p => <option key={p.id} value={p.id}>📝 {p.name}</option>)}
+                                </select>
+                                <button onClick={handleCreateNewManualProduct} class="bg-teal-600 text-white font-bold px-3 text-xs rounded-lg shadow hover:bg-teal-700">新增</button>
+                            </div>
+
+                            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs flex flex-col gap-3 shadow-sm">
+                                <h3 class="font-black text-amber-900 flex items-center justify-between">
+                                    <span><i class="fa-solid fa-sliders mr-1.5"></i>📐 標籤尺寸與字型對齊控制</span>
+                                    <span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded text-[10px]">尺寸: {widthCm}x{heightCm} cm</span>
+                                </h3>
+                                
+                                <div class="grid grid-cols-3 gap-3 bg-white p-3 rounded-lg border border-amber-200">
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">版面方向</label>
+                                        <select value={currentProduct.orientation} onChange={e => handleUpdateField('orientation', e.target.value)} class="w-full p-1.5 border rounded font-bold text-xs bg-white">
+                                            <option value="landscape">橫式 (左右雙欄)</option>
+                                            <option value="portrait">直式 (上下單欄)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">寬度 (cm)</label>
+                                        <input type="number" min="3" max="15" step="0.5" value={currentProduct.labelWidth} onChange={e => handleUpdateField('labelWidth', Number(e.target.value))} class="w-full p-1.5 border rounded font-bold text-xs" />
+                                    </div>
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">高度 (cm)</label>
+                                        <input type="number" min="3" max="15" step="0.5" value={currentProduct.labelHeight} onChange={e => handleUpdateField('labelHeight', Number(e.target.value))} class="w-full p-1.5 border rounded font-bold text-xs" />
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-4 pt-1">
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">🔍 字體大小 ({currentProduct.fontSize}px)</label>
+                                        <input type="range" min="8" max="16" step="1" value={currentProduct.fontSize} onChange={e => handleUpdateField('fontSize', Number(e.target.value))} class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600" />
+                                    </div>
+                                    <div>
+                                        <label class="font-bold text-slate-700 block mb-1">↕️ 行高間距 ({currentProduct.lineSpacing})</label>
+                                        <input type="range" min="1.0" max="1.8" step="0.05" value={currentProduct.lineSpacing} onChange={e => handleUpdateField('lineSpacing', Number(e.target.value))} class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-600" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-sm border p-4 text-xs grid grid-cols-2 gap-3">
+                                <div class="col-span-2">
+                                    <label class="font-bold text-slate-600 block mb-1">產品品名</label>
                                     <input type="text" value={currentProduct.name} onChange={e => handleUpdateField('name', e.target.value)} class="w-full p-2 border rounded font-bold" />
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div><label class="font-bold block mb-1">淨重 (g)</label><input type="number" value={currentProduct.servingWeight} onChange={e => handleUpdateField('servingWeight', Number(e.target.value))} class="w-full p-2 border rounded" /></div>
-                                    <div><label class="font-bold block mb-1">誤差 (g)</label><input type="number" value={currentProduct.toleranceWeight} onChange={e => handleUpdateField('toleranceWeight', Number(e.target.value))} class="w-full p-2 border rounded" /></div>
+                                
+                                <div>
+                                    <label class="font-bold text-slate-600 block mb-1">淨重 (g)</label>
+                                    <input type="number" value={currentProduct.servingWeight} onChange={e => handleUpdateField('servingWeight', Number(e.target.value))} class="w-full p-2 border rounded font-black text-teal-800" />
                                 </div>
-                                <div class="grid grid-cols-2 gap-2">
-                                    <div><label class="font-bold block mb-1">字型大小 ({currentProduct.fontSize}px)</label><input type="range" min="8" max="16" value={currentProduct.fontSize} onChange={e => handleUpdateField('fontSize', Number(e.target.value))} class="w-full" /></div>
-                                    <div><label class="font-bold block mb-1">行高 ({currentProduct.lineSpacing})</label><input type="range" min="1.0" max="1.8" step="0.05" value={currentProduct.lineSpacing} onChange={e => handleUpdateField('lineSpacing', Number(e.target.value))} class="w-full" /></div>
+                                <div>
+                                    <label class="font-bold text-slate-600 block mb-1">誤差值 (g)</label>
+                                    <input type="number" value={currentProduct.toleranceWeight} onChange={e => handleUpdateField('toleranceWeight', Number(e.target.value))} class="w-full p-2 border rounded font-bold text-rose-700" />
+                                </div>
+
+                                <div><label class="font-bold text-slate-600 block mb-1">保存方式</label><input type="text" value={currentProduct.storageMethod} onChange={e => handleUpdateField('storageMethod', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                <div><label class="font-bold text-slate-600 block mb-1">保存期限 (天)</label><input type="number" value={currentProduct.storageDays} onChange={e => handleUpdateField('storageDays', e.target.value)} class="w-full p-2 border rounded" /></div>
+
+                                <div class="col-span-2 border-t pt-2">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <input type="checkbox" id="chkEatingMethod" checked={!!currentProduct.showEatingMethod} onChange={e => handleUpdateField('showEatingMethod', e.target.checked)} class="w-4 h-4 text-teal-600 rounded" />
+                                        <label htmlFor="chkEatingMethod" class="font-black text-teal-900 cursor-pointer">顯示「食用方式」</label>
+                                    </div>
+                                    {currentProduct.showEatingMethod && (
+                                        <input type="text" value={currentProduct.eatingMethod || ''} onChange={e => handleUpdateField('eatingMethod', e.target.value)} class="w-full p-2 border border-teal-300 rounded bg-teal-50/50" />
+                                    )}
+                                </div>
+
+                                <div class="border-t pt-2 col-span-2 grid grid-cols-2 gap-3">
+                                    <div><label class="font-bold text-slate-600 block mb-1">原產地</label><input type="text" value={currentProduct.origin} onChange={e => handleUpdateField('origin', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                    <div><label class="font-bold text-slate-600 block mb-1">廠商</label><input type="text" value={currentProduct.manufacturer} onChange={e => handleUpdateField('manufacturer', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                    <div class="col-span-2">
+                                        <label class="font-bold text-slate-600 block mb-1">地址與電話</label>
+                                        <div class="flex gap-2">
+                                            <input type="text" placeholder="電話" value={currentProduct.phone} onChange={e => handleUpdateField('phone', e.target.value)} class="w-1/3 p-2 border rounded" />
+                                            <input type="text" placeholder="地址" value={currentProduct.address} onChange={e => handleUpdateField('address', e.target.value)} class="w-2/3 p-2 border rounded" />
+                                        </div>
+                                    </div>
+                                    <div class="col-span-2"><label class="font-bold text-slate-600 block mb-1">責任險</label><input type="text" value={currentProduct.insurance} onChange={e => handleUpdateField('insurance', e.target.value)} class="w-full p-2 border rounded text-slate-500" /></div>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="lg:col-span-7 flex flex-col gap-4">
-                            <div class="flex justify-end">
-                                <button onClick={downloadImage} class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2 rounded-lg shadow text-xs">
-                                    <i class="fa-solid fa-download mr-1.5"></i>下載高清標籤圖片 (不跑版)
-                                </button>
+                        <div class="lg:col-span-6 flex flex-col gap-4">
+                            <div class="bg-white rounded-xl shadow-sm border p-3 flex flex-wrap justify-between items-center gap-2 text-xs">
+                                <div class="flex items-center gap-2">
+                                    <button onClick={handleConnectBluetooth} class="bg-blue-600 text-white font-bold px-3 py-2 rounded-lg shadow hover:bg-blue-700 flex items-center gap-1.5">
+                                        <i class="fa-bluetooth-b fab"></i>連接藍芽出單機
+                                    </button>
+                                    <span class="text-[11px] font-bold text-slate-600">{bleStatus}</span>
+                                </div>
+
+                                <div class="flex gap-2">
+                                    <button onClick={handlePrintBluetooth} disabled={!bleCharacteristic} class={`font-bold px-3 py-2 rounded-lg shadow text-xs flex items-center gap-1.5 ${bleCharacteristic ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
+                                        <i class="fa-solid fa-print"></i>藍芽高清晰列印
+                                    </button>
+                                    <button onClick={downloadImage} class="bg-slate-800 text-white font-bold px-3 py-2 rounded-lg shadow hover:bg-slate-900 text-xs flex items-center gap-1.5">
+                                        <i class="fa-solid fa-download"></i>下載 HD 圖檔
+                                    </button>
+                                </div>
                             </div>
 
                             <div class="bg-slate-300 p-6 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[420px]">
-                                {/* 標籤卡片本體：完美解決html2canvas格線跑版 */}
+                                {/* 標籤卡片本體：強制純白底、純黑字、高銳利化 */}
                                 <div 
                                     id="nutrition-label-card" 
-                                    class="sharp-print-target p-2 text-black border-2 border-black shadow-xl flex flex-col justify-between overflow-hidden" 
+                                    class="sharp-print-target p-2 text-black border-2 border-black shadow-2xl flex flex-col justify-between overflow-hidden" 
                                     style={{ 
                                         width: `${cardWidthPx}px`, 
                                         height: `${cardHeightPx}px`,
@@ -330,12 +563,13 @@
                                     }}
                                 >
                                     <div class="w-full h-full flex flex-col justify-between">
+                                        
                                         <div class={`flex ${isLandscape ? 'flex-row gap-2' : 'flex-col gap-1'} h-full items-stretch`}>
                                             
-                                            {/* 左邊欄位 */}
+                                            {/* 左邊：商品詳細資訊 */}
                                             <div class={isLandscape ? 'w-[56%] flex flex-col justify-between pr-1' : 'w-full flex flex-col gap-0.5 border-b-2 border-black pb-1'}>
                                                 <div class="flex flex-col gap-0.5">
-                                                    <div class="font-black text-center grid-row-thick-line pb-1 mb-1 text-[1.1em]">
+                                                    <div class="font-black text-center border-b-2 border-black pb-0.5 tracking-wider mb-1 text-[1.15em]">
                                                         品名：{currentProduct.name}
                                                     </div>
                                                     <div><strong class="font-black">內容物：</strong>{sortedIngredientsText}</div>
@@ -350,47 +584,48 @@
                                                     <div><strong class="font-black">電話：</strong>{currentProduct.phone}</div>
                                                     <div><strong class="font-black">地址：</strong>{currentProduct.address}</div>
                                                 </div>
-                                                <div class="text-[0.65em] text-black mt-0.5 leading-tight font-bold">{currentProduct.insurance}</div>
+                                                <div class="text-[0.68em] text-black mt-0.5 leading-tight font-bold">{currentProduct.insurance}</div>
                                             </div>
 
-                                            {/* 右邊營養標示：使用全彈性 Flex 結構 + ::after 防偏移技術 */}
+                                            {/* 右邊：營養標示（改用 HTML 表格固定格線，徹底杜絕錯位） */}
                                             <div class={isLandscape ? 'w-[44%] border-2 border-black p-1 flex flex-col justify-between' : 'w-full border-2 border-black p-1 flex flex-col'}>
-                                                <div class="w-full flex flex-col">
-                                                    <div class="text-center font-black tracking-wider grid-row-line pb-0.5 mb-0.5" style={{ fontSize: '1.05em' }}>
+                                                <div>
+                                                    <div class="text-center font-black tracking-wider border-b border-black pb-0.5 mb-0.5" style={{ fontSize: '1.1em' }}>
                                                         營養標示
                                                     </div>
                                                     
-                                                    <div class="text-[0.8em] font-bold leading-tight grid-row-thick-line pb-0.5 mb-0.5">
+                                                    <div class="text-[0.82em] font-bold leading-tight px-0.5">
                                                         <div>每一份量 {currentProduct.servingWeight || 0} 公克</div>
-                                                        <div>本包裝含 1 份</div>
+                                                        <div class="border-b-2 border-black pb-0.5">本包裝含 1 份</div>
                                                     </div>
 
-                                                    {/* 表格標頭 */}
-                                                    <div class="flex text-[0.78em] font-black pb-0.5 grid-row-line">
-                                                        <div class="w-2/5 text-left"></div>
-                                                        <div class="w-3/10 text-right">每份</div>
-                                                        <div class="w-3/10 text-right">每100g</div>
-                                                    </div>
-
-                                                    {/* 表格列內容（每一行都獨立對齊） */}
-                                                    <div class="flex flex-col text-[0.78em] font-bold">
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5">熱量</div><div class="w-3/10 text-right">{calculatedLabel.serving.kcal}大卡</div><div class="w-3/10 text-right">{calculatedLabel.p100g.kcal}大卡</div></div>
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5">蛋白質</div><div class="w-3/10 text-right">{calculatedLabel.serving.protein}g</div><div class="w-3/10 text-right">{calculatedLabel.p100g.protein}g</div></div>
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5">脂肪</div><div class="w-3/10 text-right">{calculatedLabel.serving.fat}g</div><div class="w-3/10 text-right">{calculatedLabel.p100g.fat}g</div></div>
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5 pl-1.5">飽和脂肪</div><div class="w-3/10 text-right">{calculatedLabel.serving.satFat}g</div><div class="w-3/10 text-right">{calculatedLabel.p100g.satFat}g</div></div>
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5 pl-1.5">反式脂肪</div><div class="w-3/10 text-right">{calculatedLabel.serving.transFat}g</div><div class="w-3/10 text-right">{calculatedLabel.p100g.transFat}g</div></div>
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5">碳水化合物</div><div class="w-3/10 text-right">{calculatedLabel.serving.carb}g</div><div class="w-3/10 text-right">{calculatedLabel.p100g.carb}g</div></div>
-                                                        <div class="flex py-0.5 grid-row-line"><div class="w-2/5 pl-1.5">糖</div><div class="w-3/10 text-right">{calculatedLabel.serving.sugar}g</div><div class="w-3/10 text-right">{calculatedLabel.p100g.sugar}g</div></div>
-                                                        <div class="flex py-0.5"><div class="w-2/5">鈉</div><div class="w-3/10 text-right">{calculatedLabel.serving.sodium}mg</div><div class="w-3/10 text-right">{calculatedLabel.p100g.sodium}mg</div></div>
-                                                    </div>
+                                                    <table class="nutrition-table text-[0.8em] font-bold mt-0.5">
+                                                        <thead>
+                                                            <tr>
+                                                                <th class="text-left w-2/5 font-normal"></th>
+                                                                <th class="text-right w-3/10 font-black">每份</th>
+                                                                <th class="text-right w-3/10 font-black">每100g</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            <tr><td>熱量</td><td class="text-right">{calculatedLabel.serving.kcal}大卡</td><td class="text-right">{calculatedLabel.p100g.kcal}大卡</td></tr>
+                                                            <tr><td>蛋白質</td><td class="text-right">{calculatedLabel.serving.protein}g</td><td class="text-right">{calculatedLabel.p100g.protein}g</td></tr>
+                                                            <tr><td>脂肪</td><td class="text-right">{calculatedLabel.serving.fat}g</td><td class="text-right">{calculatedLabel.p100g.fat}g</td></tr>
+                                                            <tr><td class="pl-1.5">飽和脂肪</td><td class="text-right">{calculatedLabel.serving.satFat}g</td><td class="text-right">{calculatedLabel.p100g.satFat}g</td></tr>
+                                                            <tr><td class="pl-1.5">反式脂肪</td><td class="text-right">{calculatedLabel.serving.transFat}g</td><td class="text-right">{calculatedLabel.p100g.transFat}g</td></tr>
+                                                            <tr><td>碳水化合物</td><td class="text-right">{calculatedLabel.serving.carb}g</td><td class="text-right">{calculatedLabel.p100g.carb}g</td></tr>
+                                                            <tr><td class="pl-1.5">糖</td><td class="text-right">{calculatedLabel.serving.sugar}g</td><td class="text-right">{calculatedLabel.p100g.sugar}g</td></tr>
+                                                            <tr><td>鈉</td><td class="text-right">{calculatedLabel.serving.sodium}mg</td><td class="text-right">{calculatedLabel.p100g.sodium}mg</td></tr>
+                                                        </tbody>
+                                                    </table>
                                                 </div>
                                             </div>
 
                                         </div>
 
-                                        {/* 底部過敏原 */}
+                                        {/* 底部過敏原警語 */}
                                         {allergenWarning && (
-                                            <div class="text-[0.7em] font-black border border-black border-dashed p-0.5 mt-0.5 leading-tight">
+                                            <div class="text-[0.72em] font-black border border-black border-dashed p-0.5 mt-0.5 leading-tight">
                                                 ⚠️ {allergenWarning}
                                             </div>
                                         )}
