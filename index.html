@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>智慧食品營養標籤產生器 V3.6 (SVG防偏移終極版)</title>
+    <title>智慧食品營養標籤產生器 V3.8 (線條還原防壓字版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin crossorigin="anonymous"></script>
@@ -24,10 +24,9 @@
             text-rendering: optimizeLegibility;
         }
 
-        /* 清除所有預設邊框 */
-        .no-border * {
-            border: none !important;
-            box-shadow: none !important;
+        /* 使用 SVG 替代傳統 border 以免 html2canvas 渲染偏移 */
+        .dashed-border-box {
+            background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' stroke='black' stroke-width='1.5' stroke-dasharray='4%2c 3' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
         }
     </style>
 </head>
@@ -80,12 +79,8 @@
             const [syncStatus, setSyncStatus] = useState('初始化中...');
             const [applyFdaRules, setApplyFdaRules] = useState(true);
 
-            const [bleDevice, setBleDevice] = useState(null);
-            const [bleCharacteristic, setBleCharacteristic] = useState(null);
-            const [bleStatus, setBleStatus] = useState('未連線');
-
             useEffect(() => {
-                const local = localStorage.getItem('local_products_v36');
+                const local = localStorage.getItem('local_products_v38');
                 if (local) {
                     try { setProducts(JSON.parse(local)); } catch(e) { console.log(e); }
                 }
@@ -134,7 +129,7 @@
 
             const handleSyncToCloud = () => {
                 setSyncStatus('🚀 正在傳輸資料至 Google 試算表...');
-                localStorage.setItem('local_products_v36', JSON.stringify(products));
+                localStorage.setItem('local_products_v38', JSON.stringify(products));
 
                 fetch(GAS_API_URL, {
                     method: 'POST',
@@ -242,7 +237,7 @@
                     logging: false
                 }).then(canvas => {
                     const link = document.createElement('a');
-                    link.download = `${currentProduct.name}_精準對齊標籤.png`;
+                    link.download = `${currentProduct.name}_完美標籤.png`;
                     link.href = canvas.toDataURL('image/png');
                     link.click();
                 });
@@ -258,7 +253,7 @@
                 <div class="min-h-screen flex flex-col">
                     <header class="bg-slate-900 text-white shadow-md py-4 px-6 flex justify-between items-center">
                         <div>
-                            <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品標籤產生器 V3.6 (防偏移版)</h1>
+                            <h1 class="text-base sm:text-lg font-black tracking-wide">智慧食品標籤產生器 V3.8 (線條還原防壓字版)</h1>
                             <p class="text-[10px] text-slate-300 font-bold">{syncStatus}</p>
                         </div>
                         <button onClick={handleSyncToCloud} class="bg-amber-500 hover:bg-amber-600 text-slate-950 font-black px-4 py-2 rounded-lg text-xs">
@@ -270,7 +265,7 @@
                         <div class="lg:col-span-5 flex flex-col gap-4">
                             <div class="bg-white rounded-xl border p-4 text-xs flex flex-col gap-3">
                                 <div>
-                                    <label class="font-bold block mb-1">選擇或新增產品</label>
+                                    <label class="font-bold block mb-1">選擇產品</label>
                                     <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} class="w-full p-2 border rounded font-bold bg-white">
                                         {products.map(p => <option key={p.id} value={p.id}>📝 {p.name}</option>)}
                                     </select>
@@ -293,68 +288,89 @@
                         <div class="lg:col-span-7 flex flex-col gap-4">
                             <div class="flex justify-end">
                                 <button onClick={downloadImage} class="bg-teal-700 hover:bg-teal-800 text-white font-bold px-4 py-2 rounded-lg shadow text-xs">
-                                    <i class="fa-solid fa-download mr-1.5"></i>下載圖片 (絕對不偏移壓字)
+                                    <i class="fa-solid fa-download mr-1.5"></i>下載完美圖片
                                 </button>
                             </div>
 
                             <div class="bg-slate-300 p-6 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[420px]">
-                                {/* 標籤卡片本體：使用雙重容器技術，徹底分離邊框與內容 */}
+                                {/* 最外層：以 3px 黑色區塊背景作為最外框 */}
                                 <div 
                                     id="nutrition-label-card" 
-                                    class="sharp-print-target p-2 text-black shadow-2xl flex flex-col justify-between relative no-border" 
+                                    class="sharp-print-target bg-black p-[3px] text-black shadow-2xl relative" 
                                     style={{ 
                                         width: `${cardWidthPx}px`, 
                                         height: `${cardHeightPx}px`,
-                                        boxSizing: 'border-box',
-                                        fontSize: `${currentProduct.fontSize}px`, 
-                                        lineHeight: currentProduct.lineSpacing,
-                                        outline: '2px solid black' /* 使用 outline 代替 border 外框 */
+                                        boxSizing: 'border-box'
                                     }}
                                 >
-                                    <div class="w-full h-full flex flex-col justify-between">
-                                        <div class={`flex ${isLandscape ? 'flex-row gap-2' : 'flex-col gap-1'} h-full items-stretch`}>
+                                    {/* 內部白色卡片主體 */}
+                                    <div 
+                                        class="w-full h-full bg-white p-2 flex flex-col justify-between"
+                                        style={{
+                                            fontSize: `${currentProduct.fontSize}px`, 
+                                            lineHeight: currentProduct.lineSpacing
+                                        }}
+                                    >
+                                        <div class={`flex ${isLandscape ? 'flex-row gap-2' : 'flex-col gap-2'} h-full items-stretch`}>
                                             
-                                            {/* 左欄 */}
-                                            <div class={isLandscape ? 'w-[56%] flex flex-col justify-between pr-1' : 'w-full flex flex-col gap-0.5 pb-1'}>
-                                                <div class="flex flex-col gap-0.5">
-                                                    <div class="font-black text-center mb-1 text-[1.1em] pb-1 border-b border-black" style={{ borderBottom: '1.5px solid black !important' }}>
+                                            {/* 左欄：商品基本標示 */}
+                                            <div class={isLandscape ? 'w-[55%] flex flex-col justify-between pr-1' : 'w-full flex flex-col gap-1'}>
+                                                <div class="flex flex-col">
+                                                    <div class="font-black text-center text-[1.15em] py-0.5">
                                                         品名：{currentProduct.name}
                                                     </div>
-                                                    <div><strong class="font-black">內容物：</strong>{sortedIngredientsText}</div>
-                                                    <div><strong class="font-black">淨重：</strong>{currentProduct.servingWeight || 0}g ± {currentProduct.toleranceWeight || 0}g</div>
-                                                    <div><strong class="font-black">保存方式：</strong>{currentProduct.storageMethod}</div>
-                                                    <div><strong class="font-black">保存期限：</strong>{currentProduct.storageDays}天</div>
-                                                    {currentProduct.showEatingMethod && (
-                                                        <div><strong class="font-black">食用方式：</strong>{currentProduct.eatingMethod || "無"}</div>
-                                                    )}
-                                                    <div><strong class="font-black">原產地：</strong>{currentProduct.origin}</div>
-                                                    <div><strong class="font-black">廠商：</strong>{currentProduct.manufacturer}</div>
-                                                    <div><strong class="font-black">電話：</strong>{currentProduct.phone}</div>
-                                                    <div><strong class="font-black">地址：</strong>{currentProduct.address}</div>
+                                                    
+                                                    {/* 純 HTML 獨立分隔線 (防壓字) */}
+                                                    <div class="w-full h-[2px] bg-black my-1"></div>
+
+                                                    <div class="flex flex-col gap-0.5">
+                                                        <div><strong class="font-black">內容物：</strong>{sortedIngredientsText}</div>
+                                                        <div><strong class="font-black">淨重：</strong>{currentProduct.servingWeight || 0}g ± {currentProduct.toleranceWeight || 0}g</div>
+                                                        <div><strong class="font-black">保存方式：</strong>{currentProduct.storageMethod}</div>
+                                                        <div><strong class="font-black">保存期限：</strong>{currentProduct.storageDays}天</div>
+                                                        {currentProduct.showEatingMethod && (
+                                                            <div><strong class="font-black">食用方式：</strong>{currentProduct.eatingMethod || "無"}</div>
+                                                        )}
+                                                        <div><strong class="font-black">原產地：</strong>{currentProduct.origin}</div>
+                                                        <div><strong class="font-black">廠商：</strong>{currentProduct.manufacturer}</div>
+                                                        <div><strong class="font-black">電話：</strong>{currentProduct.phone}</div>
+                                                        <div><strong class="font-black">地址：</strong>{currentProduct.address}</div>
+                                                    </div>
                                                 </div>
-                                                <div class="text-[0.65em] text-black mt-0.5 leading-tight font-bold">{currentProduct.insurance}</div>
+                                                <div class="text-[0.65em] text-black font-bold mt-1 leading-tight">{currentProduct.insurance}</div>
                                             </div>
 
-                                            {/* 右欄營養標示：使用 Flex Box 水平線隔開，完全取代網格邊框 */}
-                                            <div class={isLandscape ? 'w-[44%] p-1 flex flex-col justify-between relative' : 'w-full p-1 flex flex-col relative'} style={{ outline: '1.5px solid black' }}>
-                                                <div class="w-full flex flex-col">
-                                                    <div class="text-center font-black tracking-wider pb-1 mb-1" style={{ fontSize: '1.05em', borderBottom: '1px solid black !important' }}>
+                                            {/* 右欄：營養標示 (外層包覆 2px 黑色背景作為獨立邊框) */}
+                                            <div class={isLandscape ? 'w-[45%] bg-black p-[2px] flex flex-col' : 'w-full bg-black p-[2px] flex flex-col'}>
+                                                <div class="w-full h-full bg-white p-1.5 flex flex-col">
+                                                    
+                                                    <div class="text-center font-black text-[1.1em] py-0.5">
                                                         營養標示
                                                     </div>
-                                                    
-                                                    <div class="text-[0.8em] font-bold leading-tight pb-1 mb-1" style={{ borderBottom: '2px solid black !important' }}>
+
+                                                    {/* 獨立分隔線 */}
+                                                    <div class="w-full h-[1.5px] bg-black my-1"></div>
+
+                                                    <div class="text-[0.8em] font-bold leading-tight">
                                                         <div>每一份量 {currentProduct.servingWeight || 0} 公克</div>
                                                         <div>本包裝含 1 份</div>
                                                     </div>
 
-                                                    {/* 表格區 */}
-                                                    <div class="flex flex-col text-[0.78em] font-bold w-full">
-                                                        <div class="flex pb-1 mb-0.5" style={{ borderBottom: '1px solid black !important' }}>
-                                                            <div class="w-2/5 text-left font-black"></div>
-                                                            <div class="w-3/10 text-right font-black">每份</div>
-                                                            <div class="w-3/10 text-right font-black">每100g</div>
-                                                        </div>
+                                                    {/* 獨立粗分隔線 */}
+                                                    <div class="w-full h-[3px] bg-black my-1"></div>
 
+                                                    {/* 營養標頭 */}
+                                                    <div class="flex text-[0.8em] font-black w-full py-0.5">
+                                                        <div class="w-5/12 text-left"></div>
+                                                        <div class="w-3/12 text-right">每份</div>
+                                                        <div class="w-4/12 text-right">每100g</div>
+                                                    </div>
+
+                                                    {/* 獨立細分隔線 */}
+                                                    <div class="w-full h-[1.5px] bg-black mb-1"></div>
+
+                                                    {/* 營養數值表 */}
+                                                    <div class="flex flex-col text-[0.78em] font-bold w-full gap-0.5">
                                                         {[
                                                             ["熱量", `${calculatedLabel.serving.kcal}大卡`, `${calculatedLabel.p100g.kcal}大卡`],
                                                             ["蛋白質", `${calculatedLabel.serving.protein}g`, `${calculatedLabel.p100g.protein}g`],
@@ -365,21 +381,22 @@
                                                             ["  糖", `${calculatedLabel.serving.sugar}g`, `${calculatedLabel.p100g.sugar}g`],
                                                             ["鈉", `${calculatedLabel.serving.sodium}mg`, `${calculatedLabel.p100g.sodium}mg`]
                                                         ].map((item, idx) => (
-                                                            <div key={idx} class="flex py-0.5" style={{ borderBottom: idx === 7 ? 'none' : '1px solid black !important' }}>
-                                                                <div class="w-2/5 text-left">{item[0]}</div>
-                                                                <div class="w-3/10 text-right">{item[1]}</div>
-                                                                <div class="w-3/10 text-right">{item[2]}</div>
+                                                            <div key={idx} class="flex items-center w-full">
+                                                                <div class="w-5/12 text-left whitespace-nowrap">{item[0]}</div>
+                                                                <div class="w-3/12 text-right whitespace-nowrap">{item[1]}</div>
+                                                                <div class="w-4/12 text-right whitespace-nowrap">{item[2]}</div>
                                                             </div>
                                                         ))}
                                                     </div>
+
                                                 </div>
                                             </div>
 
                                         </div>
 
-                                        {/* 底部過敏原 */}
+                                        {/* 底部過敏原警告 (SVG 虛線框，絕不移位) */}
                                         {allergenWarning && (
-                                            <div class="text-[0.7em] font-black p-0.5 mt-0.5 leading-tight" style={{ border: '1px dashed black !important' }}>
+                                            <div class="text-[0.7em] font-black p-1 mt-1 leading-tight dashed-border-box flex items-center">
                                                 ⚠️ {allergenWarning}
                                             </div>
                                         )}
