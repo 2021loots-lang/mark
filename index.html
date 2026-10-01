@@ -25,10 +25,15 @@
             text-rendering: optimizeLegibility;
         }
 
-        /* 移除預設的 border，統一用 SVG 繪製無誤差邊框 */
-        .no-border-table td, .no-border-table th {
-            border: none !important;
-            padding: 1px 2px;
+        /* 營養標示內部表格格線設定 */
+        .bordered-table {
+            border-collapse: collapse !important;
+            width: 100%;
+        }
+        .bordered-table th, 
+        .bordered-table td {
+            border: 1px solid #000000 !important; /* 加上實線邊框格線 */
+            padding: 2px 4px;
         }
     </style>
 </head>
@@ -351,7 +356,7 @@
                     </header>
 
                     <main class="flex-grow max-w-7xl mx-auto px-4 py-6 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        {/* 左側面板：所有控制項目完整保留 */}
+                        {/* 左側面板 */}
                         <div class="lg:col-span-6 flex flex-col gap-4">
                             <div class="bg-white rounded-xl shadow-sm border p-4 flex gap-2">
                                 <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} class="flex-1 p-2 border text-xs rounded font-bold bg-white">
@@ -449,7 +454,7 @@
                             </div>
 
                             <div class="bg-slate-300 p-6 rounded-xl border flex justify-center items-center overflow-x-auto min-h-[420px]">
-                                {/* 標籤卡片本體：完美格線技術 */}
+                                {/* 標籤卡片本體 */}
                                 <div 
                                     id="nutrition-label-card" 
                                     class="sharp-print-target p-2 text-black border-2 border-black shadow-2xl flex flex-col justify-between overflow-hidden" 
@@ -468,7 +473,6 @@
                                             {/* 左邊商品資訊 */}
                                             <div class={isLandscape ? 'w-[56%] flex flex-col justify-between pr-1' : 'w-full flex flex-col gap-0.5 border-b-2 border-black pb-1'}>
                                                 <div class="flex flex-col gap-0.5">
-                                                    {/* 品名下方繪製獨立橫線 */}
                                                     <div class="font-black text-center tracking-wider mb-1 text-[1.1em] relative pb-1">
                                                         品名：{currentProduct.name}
                                                         <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-black"></div>
@@ -488,7 +492,7 @@
                                                 <div class="text-[0.65em] text-black mt-0.5 leading-tight font-bold">{currentProduct.insurance}</div>
                                             </div>
 
-                                            {/* 右邊營養標示：使用純 HTML 表格 + 徹底分離的橫線設計，保證轉圖不變形 */}
+                                            {/* 右邊營養標示：含邊框格線的表格 */}
                                             <div class={isLandscape ? 'w-[44%] border-2 border-black p-1 flex flex-col justify-between' : 'w-full border-2 border-black p-1 flex flex-col'}>
                                                 <div>
                                                     <div class="text-center font-black tracking-wider pb-0.5 relative mb-1" style={{ fontSize: '1.05em' }}>
@@ -502,9 +506,9 @@
                                                         <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-black"></div>
                                                     </div>
 
-                                                    <table class="w-full no-border-table text-[0.78em] font-bold">
+                                                    <table class="bordered-table text-[0.78em] font-bold">
                                                         <thead>
-                                                            <tr class="relative">
+                                                            <tr>
                                                                 <th class="text-left w-2/5 font-normal"></th>
                                                                 <th class="text-right w-3/10 font-black">每份</th>
                                                                 <th class="text-right w-3/10 font-black">每100g</th>
@@ -521,7 +525,7 @@
                                                                 ["  糖", `${calculatedLabel.serving.sugar}g`, `${calculatedLabel.p100g.sugar}g`],
                                                                 ["鈉", `${calculatedLabel.serving.sodium}mg`, `${calculatedLabel.p100g.sodium}mg`]
                                                             ].map((row, idx) => (
-                                                                <tr key={idx} class="relative">
+                                                                <tr key={idx}>
                                                                     <td class="text-left">{row[0]}</td>
                                                                     <td class="text-right">{row[1]}</td>
                                                                     <td class="text-right">{row[2]}</td>
