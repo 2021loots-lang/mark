@@ -25,15 +25,20 @@
             text-rendering: optimizeLegibility;
         }
 
-        /* 營養標示內部表格格線設定 */
-        .bordered-table {
+        /* 營養標示內部表格僅套用橫線（下邊框） */
+        .horizontal-border-table {
             border-collapse: collapse !important;
             width: 100%;
         }
-        .bordered-table th, 
-        .bordered-table td {
-            border: 1px solid #000000 !important; /* 加上實線邊框格線 */
+        .horizontal-border-table th, 
+        .horizontal-border-table td {
+            border: none !important;
+            border-bottom: 1px solid #000000 !important; /* 僅保留水平橫線 */
             padding: 2px 4px;
+        }
+        /* 移除最後一行的下邊框，確保底部視覺美觀 */
+        .horizontal-border-table tr:last-child td {
+            border-bottom: none !important;
         }
     </style>
 </head>
@@ -135,7 +140,7 @@
                                 setSyncStatus(`✅ 連線成功！已由雲端載入 ${parsedDb.length} 筆原料`);
                             }
                         })
-                        .catch(err => setSyncStatus('⚠️ 雲端資料庫讀取失敗'));
+                        .catch(err => setSyncStatus('⚠️️ 雲端資料庫讀取失敗'));
                 } else {
                     setSyncStatus('⚠️ 運作於單機模式');
                 }
@@ -492,7 +497,7 @@
                                                 <div class="text-[0.65em] text-black mt-0.5 leading-tight font-bold">{currentProduct.insurance}</div>
                                             </div>
 
-                                            {/* 右邊營養標示：含邊框格線的表格 */}
+                                            {/* 右邊營養標示：僅包含橫線邊框的表格 */}
                                             <div class={isLandscape ? 'w-[44%] border-2 border-black p-1 flex flex-col justify-between' : 'w-full border-2 border-black p-1 flex flex-col'}>
                                                 <div>
                                                     <div class="text-center font-black tracking-wider pb-0.5 relative mb-1" style={{ fontSize: '1.05em' }}>
@@ -506,7 +511,7 @@
                                                         <div class="absolute bottom-0 left-0 right-0 h-[2px] bg-black"></div>
                                                     </div>
 
-                                                    <table class="bordered-table text-[0.78em] font-bold">
+                                                    <table class="horizontal-border-table text-[0.78em] font-bold">
                                                         <thead>
                                                             <tr>
                                                                 <th class="text-left w-2/5 font-normal"></th>
