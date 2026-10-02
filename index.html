@@ -92,6 +92,11 @@
             const [syncStatus, setSyncStatus] = useState('初始化中...');
             const [applyFdaRules, setApplyFdaRules] = useState(true);
 
+            // 食材選擇表單 State
+            const [selectedDbIngredient, setSelectedDbIngredient] = useState('');
+            const [inputWeight, setInputWeight] = useState('');
+            const [customIngName, setCustomIngName] = useState('');
+
             const [bleDevice, setBleDevice] = useState(null);
             const [bleCharacteristic, setBleCharacteristic] = useState(null);
             const [bleStatus, setBleStatus] = useState('未連線');
@@ -140,7 +145,7 @@
                                 setSyncStatus(`✅ 連線成功！已由雲端載入 ${parsedDb.length} 筆原料`);
                             }
                         })
-                        .catch(err => setSyncStatus('⚠️️ 雲端資料庫讀取失敗'));
+                        .catch(err => setSyncStatus('⚠️ 雲端資料庫讀取失敗'));
                 } else {
                     setSyncStatus('⚠️ 運作於單機模式');
                 }
@@ -175,9 +180,16 @@
                     lineSpacing: prod.lineSpacing || 1.25,
                     labelWidth: prod.labelWidth || 8,
                     labelHeight: prod.labelHeight || 5,
-                    orientation: prod.orientation || "landscape"
+                    orientation: prod.orientation || "landscape",
+                    ingredients: prod.ingredients || []
                 };
             }, [products, selectedProductId]);
+
+            const filteredNutritionDb = useMemo(() => {
+                if (!dbSearchQuery.trim()) return nutritionDb;
+                const q = dbSearchQuery.toLowerCase();
+                return nutritionDb.filter(d => d.name.toLowerCase().includes(q) || d.commonName.toLowerCase().includes(q));
+            }, [nutritionDb, dbSearchQuery]);
 
             const allergenWarning = useMemo(() => {
                 const keywords = { "乳": "乳製品", "奶": "乳製品", "蛋": "蛋類", "小麥": "麩質穀物", "麵粉": "麩質穀物", "花生": "花生", "堅果": "堅果", "杏仁": "堅果", "芝麻": "芝麻", "大豆": "大豆" };
@@ -193,7 +205,7 @@
             }, [currentProduct]);
 
             const sortedIngredientsText = useMemo(() => {
-                if (!currentProduct || !currentProduct.ingredients) return "無";
+                if (!currentProduct || !currentProduct.ingredients || currentProduct.ingredients.length === 0) return "無";
                 const sorted = [...currentProduct.ingredients].sort((a, b) => (Number(b.weight) || 0) - (Number(a.weight) || 0));
                 return sorted.map(i => i.name).join('、');
             }, [currentProduct]);
@@ -249,6 +261,61 @@
 
             const handleUpdateField = (field, value) => {
                 setProducts(prev => prev.map(p => p.id === selectedProductId ? { ...p, [field]: value } : p));
+            };
+
+            /* 新增食材至當前配方 */
+            const handleAddIngredient = () => {
+                const nameToAdd = customIngName.trim() || selectedDbIngredient;
+                const weightNum = Number(inputWeight);
+
+                if (!nameToAdd) {
+                    alert("請選擇或輸入食材名稱！");
+                    return;
+                }
+                if (!weightNum || weightNum <= 0) {
+                    alert("請輸入正確的重量(g)！");
+                    return;
+                }
+
+                setProducts(prev => prev.map(p => {
+                    if (p.id === selectedProductId) {
+                        const existingIdx = p.ingredients.findIndex(i => i.name === nameToAdd);
+                        let updated = [...p.ingredients];
+                        if (existingIdx >= 0) {
+                            updated[existingIdx].weight = Number(updated[existingIdx].weight) + weightNum;
+                        } else {
+                            updated.push({ name: nameToAdd, weight: weightNum });
+                        }
+                        return { ...p, ingredients: updated };
+                    }
+                    return p;
+                }));
+
+                setInputWeight('');
+                setCustomIngName('');
+            };
+
+            /* 刪除食材 */
+            const handleRemoveIngredient = (index) => {
+                setProducts(prev => prev.map(p => {
+                    if (p.id === selectedProductId) {
+                        const updated = p.ingredients.filter((_, idx) => idx !== index);
+                        return { ...p, ingredients: updated };
+                    }
+                    return p;
+                }));
+            };
+
+            /* 修改食材重量 */
+            const handleIngredientWeightChange = (index, newWeight) => {
+                setProducts(prev => prev.map(p => {
+                    if (p.id === selectedProductId) {
+                        const updated = [...p.ingredients];
+                        updated[index].weight = Number(newWeight) || 0;
+                        return { ...p, ingredients: updated };
+                    }
+                    return p;
+                }));
             };
 
             const downloadImage = () => {
@@ -361,8 +428,9 @@
                     </header>
 
                     <main class="flex-grow max-w-7xl mx-auto px-4 py-6 w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        {/* 左側面板 */}
+                        {/* 左側面板：設定與配方編輯 */}
                         <div class="lg:col-span-6 flex flex-col gap-4">
+                            {/* 配方選擇器 */}
                             <div class="bg-white rounded-xl shadow-sm border p-4 flex gap-2">
                                 <select value={selectedProductId} onChange={e => setSelectedProductId(e.target.value)} class="flex-1 p-2 border text-xs rounded font-bold bg-white">
                                     {products.map(p => <option key={p.id} value={p.id}>📝 {p.name}</option>)}
@@ -370,6 +438,92 @@
                                 <button onClick={handleCreateNewManualProduct} class="bg-teal-600 text-white font-bold px-3 text-xs rounded-lg shadow hover:bg-teal-700">新增</button>
                             </div>
 
+                            {/* 食材與配方管理區塊 (重獲光明！) */}
+                            <div class="bg-white rounded-xl shadow-sm border p-4 text-xs flex flex-col gap-3">
+                                <h3 class="font-black text-slate-800 text-sm flex justify-between items-center border-b pb-2">
+                                    <span><i class="fa-solid fa-utensils text-teal-600 mr-1.5"></i>食材與配方內容</span>
+                                    <span class="text-[11px] font-normal text-slate-500">共 {currentProduct.ingredients.length} 項成分</span>
+                                </h3>
+
+                                {/* 搜尋與選擇食材 */}
+                                <div class="bg-slate-50 p-3 rounded-lg border flex flex-col gap-2">
+                                    <div class="flex gap-2">
+                                        <input 
+                                            type="text" 
+                                            placeholder="🔍 關鍵字過濾雲端食材..." 
+                                            value={dbSearchQuery} 
+                                            onChange={e => setDbSearchQuery(e.target.value)} 
+                                            class="w-full p-1.5 border rounded bg-white"
+                                        />
+                                    </div>
+                                    <div class="grid grid-cols-12 gap-2">
+                                        <select 
+                                            value={selectedDbIngredient} 
+                                            onChange={e => { setSelectedDbIngredient(e.target.value); setCustomIngName(''); }} 
+                                            class="col-span-7 p-1.5 border rounded font-bold bg-white"
+                                        >
+                                            <option value="">-- 請選擇資料庫食材 --</option>
+                                            {filteredNutritionDb.map(item => (
+                                                <option key={item.id} value={item.name}>
+                                                    {item.name} {item.commonName ? `(${item.commonName})` : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <input 
+                                            type="number" 
+                                            placeholder="重量(g)" 
+                                            value={inputWeight} 
+                                            onChange={e => setInputWeight(e.target.value)} 
+                                            class="col-span-3 p-1.5 border rounded font-bold"
+                                        />
+                                        <button 
+                                            onClick={handleAddIngredient} 
+                                            class="col-span-2 bg-teal-600 text-white font-bold rounded shadow hover:bg-teal-700 text-xs"
+                                        >
+                                            加入
+                                        </button>
+                                    </div>
+                                    <div class="flex items-center gap-2 pt-1">
+                                        <span class="text-[10px] text-slate-400 font-bold">或自訂：</span>
+                                        <input 
+                                            type="text" 
+                                            placeholder="資料庫沒有？輸入自訂食材名稱" 
+                                            value={customIngName} 
+                                            onChange={e => { setCustomIngName(e.target.value); setSelectedDbIngredient(''); }} 
+                                            class="flex-1 p-1.5 border rounded bg-white text-xs"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* 已加入的食材清單 */}
+                                {currentProduct.ingredients.length > 0 ? (
+                                    <div class="max-h-48 overflow-y-auto border rounded divide-y">
+                                        {currentProduct.ingredients.map((ing, idx) => (
+                                            <div key={idx} class="p-2 flex items-center justify-between hover:bg-slate-50 gap-2">
+                                                <span class="font-bold text-slate-700 flex-1 truncate">{ing.name}</span>
+                                                <div class="flex items-center gap-1">
+                                                    <input 
+                                                        type="number" 
+                                                        value={ing.weight} 
+                                                        onChange={e => handleIngredientWeightChange(idx, e.target.value)} 
+                                                        class="w-16 p-1 border rounded text-right font-bold"
+                                                    />
+                                                    <span class="text-slate-500 font-bold">g</span>
+                                                </div>
+                                                <button onClick={() => handleRemoveIngredient(idx)} class="text-rose-500 hover:text-rose-700 p-1">
+                                                    <i class="fa-solid fa-trash-can"></i>
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div class="text-center py-4 text-slate-400 border border-dashed rounded font-bold">
+                                        尚未加入任何食材，請由上方選擇並新增！
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 標籤尺寸與字型調整 */}
                             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs flex flex-col gap-3 shadow-sm">
                                 <h3 class="font-black text-amber-900 flex items-center justify-between">
                                     <span><i class="fa-solid fa-sliders mr-1.5"></i>標籤尺寸與字型對齊</span>
@@ -406,6 +560,7 @@
                                 </div>
                             </div>
 
+                            {/* 基本商品資訊編輯區 */}
                             <div class="bg-white rounded-xl shadow-sm border p-4 text-xs grid grid-cols-2 gap-3">
                                 <div class="col-span-2">
                                     <label class="font-bold text-slate-600 block mb-1">品名</label>
@@ -413,8 +568,9 @@
                                 </div>
                                 <div><label class="font-bold text-slate-600 block mb-1">淨重 (g)</label><input type="number" value={currentProduct.servingWeight} onChange={e => handleUpdateField('servingWeight', Number(e.target.value))} class="w-full p-2 border rounded font-black text-teal-800" /></div>
                                 <div><label class="font-bold text-slate-600 block mb-1">誤差 (g)</label><input type="number" value={currentProduct.toleranceWeight} onChange={e => handleUpdateField('toleranceWeight', Number(e.target.value))} class="w-full p-2 border rounded font-bold text-rose-700" /></div>
-                                <div><label class="font-bold text-slate-600 block mb-1">保存方式</label><input type="text" value={currentProduct.storageMethod} onChange={e => handleUpdateField('storageMethod', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                <div><label class="font-bold text-slate-600 block mb-1">烘焙損耗率 (%)</label><input type="number" value={currentProduct.lossRate} onChange={e => handleUpdateField('lossRate', Number(e.target.value))} class="w-full p-2 border rounded font-bold text-amber-700" /></div>
                                 <div><label class="font-bold text-slate-600 block mb-1">保存天數</label><input type="number" value={currentProduct.storageDays} onChange={e => handleUpdateField('storageDays', e.target.value)} class="w-full p-2 border rounded" /></div>
+                                <div class="col-span-2"><label class="font-bold text-slate-600 block mb-1">保存方式</label><input type="text" value={currentProduct.storageMethod} onChange={e => handleUpdateField('storageMethod', e.target.value)} class="w-full p-2 border rounded" /></div>
 
                                 <div class="col-span-2 border-t pt-2">
                                     <div class="flex items-center gap-2 mb-1">
